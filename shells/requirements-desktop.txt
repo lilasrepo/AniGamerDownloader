@@ -1,0 +1,11 @@
+# Build/run-time deps for the Windows desktop shell (shells/desktop.py).
+# These are NOT in the main requirements-venv.txt because only the desktop build
+# needs them — the dev venv does not install them by default.
+#
+#   pip install -r shells/requirements-desktop.txt
+#
+# pywebview pulls the Windows WebView2 backend (Edge Chromium). On a clean machine
+# also ensure the WebView2 Evergreen runtime is present — see docs/DESKTOP_BUILD.md.
+pywebview>=5.0
+# Packaging tool for the portable ONEDIR build (scripts/build_desktop.bat).
+pyinstaller>=6.0

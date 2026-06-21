@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "anigamerdownloader-core"
+version = "24.6.0"
+description = "Pure download engine for the AniGamerDownloader local fork (Bahamut anime downloader)"
+requires-python = ">=3.13"
+# Download-engine subset of requirements-venv.txt only. NO flask/pystray/gevent.
+dependencies = [
+    "requests",
+    "beautifulsoup4",
+    "lxml",
+    "pyhttpx",
+    "chardet",
+    "termcolor",
+    "pysocks",
+    "pip-system-certs",
+]
+
+[tool.setuptools]
+# This directory IS the `core` package. `pip install -e ./core` maps the
+# editable `core` package to these sources so `import core.config` works.
+packages = ["core"]
+package-dir = { "core" = "." }
+include-package-data = true

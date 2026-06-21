@@ -1,0 +1,36 @@
+# Build context = repo ROOT. Keep the image small + reproducible: ship only
+# core/ app/ web/ + the docker shell + the danmu template seed. Runtime data
+# (config.json / cookie.txt / aniGamer.db / logs / output) comes from the mounted
+# /app/data volume, NOT baked into the image.
+
+# --- never ship ---
+.git
+.gitignore
+.venv
+**/__pycache__
+**/*.py[cod]
+*.egg-info
+build
+dist
+
+# --- desktop / Windows-only shell + launchers (not used in the container) ---
+src
+archived
+shells/desktop.py
+*.bat
+
+# --- docs / samples / screenshots (not needed at runtime) ---
+docs
+*.md
+
+# --- runtime data: comes from the mounted volume, not the image ---
+# Exclude everything under data/ EXCEPT the danmu template asset, which the
+# Dockerfile copies to a seed path and the entrypoint seeds into the volume.
+data
+!data/DanmuTemplate.ass
+
+# --- editor / OS cruft ---
+.idea
+.vscode
+.DS_Store
+Thumbs.db

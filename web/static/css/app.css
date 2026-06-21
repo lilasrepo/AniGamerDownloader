@@ -1,0 +1,943 @@
+/* ==========================================================================
+   AniGamerDownloader Dashboard — single-page app, Anthropic-styled vanilla CSS.
+   No frameworks, no CDN, no external fonts. Colors/spacing via :root custom
+   properties; Top-tab layout, cards,
+   toggles, native <dialog>, progress bars.
+   ========================================================================== */
+
+:root {
+	--bg: #F0EEE6;            /* warm cream */
+	--surface: #FAF9F5;
+	--surface-2: #FFFFFF;
+	--text: #1F1E1D;         /* ink */
+	--text-muted: #73726C;
+	--border: #E3E0D8;
+	--primary: #D97757;      /* Anthropic clay / rust */
+	--primary-hover: #C2613F;
+	--primary-text: #FFFFFF;
+	--success: #2F8A57;
+	--danger: #BC4332;
+	--radius: 14px;          /* cards */
+	--radius-sm: 9px;        /* inputs, buttons */
+	--gap: 1rem;
+	--nav-h: 5.25rem;        /* stacked + centered brand row over tabs row */
+	--shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+	--shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.18);
+	--ring: rgba(217, 119, 87, 0.28);
+
+	--font-sans: "Inter", "Söhne", -apple-system, BlinkMacSystemFont,
+		ui-sans-serif, system-ui, "Segoe UI", "Microsoft JhengHei",
+		"PingFang TC", sans-serif;
+	--font-serif: ui-serif, Georgia, "Songti TC", serif;
+}
+
+
+/* ---- base ---------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html {
+	font-size: 16px;
+}
+
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+	font-family: var(--font-sans);
+	line-height: 1.55;
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+}
+
+/* ---- top bar (brand + tabs) --------------------------------------------- */
+
+.topbar {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	z-index: 100;
+	min-height: var(--nav-h);
+	display: flex;
+	flex-direction: column;   /* brand on top, tabs below — both centered */
+	flex-wrap: wrap;
+	align-items: center;       /* horizontal centering of brand + tabs */
+	justify-content: center;
+	gap: 0.5rem;
+	padding: 0.6rem 1.5rem;
+	background: var(--surface);
+	border-bottom: 1px solid var(--border);
+	box-shadow: var(--shadow);
+}
+
+.brand {
+	font-family: var(--font-serif);
+	font-size: 1.2rem;
+	font-weight: 600;
+	letter-spacing: 0.01em;
+	color: var(--text);
+	text-decoration: none;
+	white-space: nowrap;
+}
+
+.brand:hover {
+	color: var(--primary);
+}
+
+.tabs {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: center;
+	gap: 0.25rem;
+}
+
+.tab {
+	appearance: none;
+	font: inherit;
+	font-weight: 500;
+	color: var(--text-muted);
+	background: transparent;
+	border: none;
+	padding: 0.45rem 0.85rem;
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+	position: relative;
+	transition: color 0.15s, background-color 0.15s;
+}
+
+.tab:hover {
+	color: var(--text);
+	background: var(--bg);
+}
+
+.tab.is-active {
+	color: var(--primary);
+	background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+.tab:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 3px var(--ring);
+}
+
+/* ---- content / panels --------------------------------------------------- */
+
+.content {
+	max-width: 64rem;
+	margin: 0 auto;
+	padding: calc(var(--nav-h) + 1.75rem) 1.5rem 3.5rem;
+}
+
+/* On narrow viewports the fixed top bar wraps onto a second row and grows past
+   --nav-h, so reserve extra top clearance to keep content clear of it. */
+@media (max-width: 40rem) {
+	.content {
+		padding-top: calc(var(--nav-h) * 2 + 1.5rem);
+	}
+
+	/* Force a true single column; otherwise spanning items generate an implicit
+	   second track and the non-spanning fields get crushed / overflow the page. */
+	.grid {
+		grid-template-columns: 1fr;
+	}
+
+	.span-2,
+	.span-full {
+		grid-column: 1 / -1;
+	}
+}
+
+.panel {
+	display: none;
+}
+
+.panel.is-active {
+	display: block;
+	animation: panel-fade 0.15s ease;
+}
+
+@keyframes panel-fade {
+	from { opacity: 0; transform: translateY(4px); }
+	to   { opacity: 1; transform: none; }
+}
+
+/* ---- section card ------------------------------------------------------- */
+
+.section {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	padding: 1.75rem;
+	margin-bottom: 1.5rem;
+	box-shadow: var(--shadow);
+}
+
+.section h2 {
+	margin: 0 0 1.5rem;
+	font-family: var(--font-serif);
+	font-size: 1.3rem;
+	font-weight: 600;
+	color: var(--text);
+	padding-bottom: 0.65rem;
+	border-bottom: 1px solid var(--border);
+}
+
+/* ---- grid / fields ------------------------------------------------------ */
+
+.grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+	gap: 1.25rem;
+	align-items: end;
+}
+
+.field {
+	display: flex;
+	flex-direction: column;
+	gap: 0.4rem;
+	min-width: 0;
+}
+
+.field-label {
+	font-size: 0.85rem;
+	font-weight: 600;
+	color: var(--text-muted);
+}
+
+.field input[type="text"],
+.field input[type="number"],
+.field input[type="password"],
+.field select,
+textarea {
+	width: 100%;
+	padding: 0.55rem 0.7rem;
+	font: inherit;
+	color: var(--text);
+	background: var(--surface-2);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.field input:focus,
+.field select:focus,
+textarea:focus {
+	outline: none;
+	border-color: var(--primary);
+	box-shadow: 0 0 0 3px var(--ring);
+}
+
+.field select {
+	cursor: pointer;
+	appearance: none;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2373726C' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 0.6rem center;
+	padding-right: 2rem;
+}
+
+textarea {
+	min-height: 11rem;
+	resize: vertical;
+	line-height: 1.6;
+}
+
+/* width spans */
+.span-2 {
+	grid-column: span 2;
+}
+
+.span-full {
+	grid-column: 1 / -1;
+}
+
+/* UA field: label on top, then input, then the button stacked beneath it */
+.field > .btn {
+	margin-top: 0.4rem;
+	align-self: flex-start;
+}
+
+/* ---- toggle switch ------------------------------------------------------ */
+
+/* Toggle rows deliberately keep the standard label-on-top .field layout; this
+   hook owns the `switch` class used in the markup (no extra declarations). */
+.field.switch {
+	/* keep label-on-top layout like other fields */
+}
+
+.switch-control {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	width: 3rem;
+	height: 1.6rem;
+}
+
+.switch-control input[type="checkbox"] {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	border: 0;
+	clip: rect(0 0 0 0);
+	clip-path: inset(50%);
+	overflow: hidden;
+	white-space: nowrap;
+}
+
+.slider {
+	position: absolute;
+	inset: 0;
+	width: 3rem;
+	height: 1.6rem;
+	background: var(--border);
+	border: 1px solid var(--border);
+	border-radius: 1rem;
+	cursor: pointer;
+	transition: background-color 0.2s, border-color 0.2s;
+}
+
+.slider::before {
+	content: "";
+	position: absolute;
+	top: 50%;
+	left: 0.2rem;
+	width: 1.1rem;
+	height: 1.1rem;
+	transform: translateY(-50%);
+	background: #FFFFFF;
+	border-radius: 50%;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+	transition: transform 0.2s;
+}
+
+.switch-control input[type="checkbox"]:checked + .slider {
+	background: var(--primary);
+	border-color: var(--primary);
+}
+
+.switch-control input[type="checkbox"]:checked + .slider::before {
+	transform: translate(1.4rem, -50%);
+}
+
+.switch-control input[type="checkbox"]:focus-visible + .slider {
+	box-shadow: 0 0 0 3px var(--ring);
+}
+
+/* ---- buttons ------------------------------------------------------------ */
+
+.btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.4rem;
+	padding: 0.6rem 1.15rem;
+	font: inherit;
+	font-weight: 600;
+	line-height: 1;
+	color: var(--text);
+	background: var(--surface-2);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+	text-decoration: none;
+	transition: background-color 0.15s, border-color 0.15s, color 0.15s, filter 0.15s;
+	white-space: nowrap;
+}
+
+.btn:hover {
+	filter: brightness(0.97);
+}
+
+.btn:active {
+	filter: brightness(0.93);
+}
+
+.btn:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 3px var(--ring);
+}
+
+.btn-primary {
+	color: var(--primary-text);
+	background: var(--primary);
+	border-color: var(--primary);
+}
+
+.btn-primary:hover {
+	filter: none;
+	background: var(--primary-hover);
+	border-color: var(--primary-hover);
+}
+
+.btn-danger {
+	color: var(--primary-text);
+	background: var(--danger);
+	border-color: var(--danger);
+}
+
+.btn-secondary {
+	color: var(--text);
+	background: var(--surface-2);
+	border-color: var(--border);
+}
+
+.btn-dark {
+	color: var(--text);
+	background: var(--bg);
+	border-color: var(--border);
+}
+
+/* action row for the save / reload / submit buttons */
+.actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.75rem;
+	justify-content: flex-end;
+	margin-top: 1.5rem;
+}
+
+/* ---- sn_list help ------------------------------------------------------- */
+
+.sn-help {
+	margin: 0 0 1.5rem;
+	padding: 1rem 1.25rem;
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	color: var(--text-muted);
+	font-size: 0.9rem;
+}
+
+.sn-help dt {
+	font-weight: 700;
+	color: var(--text);
+	margin-top: 0.5rem;
+}
+
+.sn-help dt:first-child {
+	margin-top: 0;
+}
+
+.sn-help dd {
+	margin: 0.35rem 0 0.35rem 1rem;
+}
+
+.sn-help code {
+	display: inline-block;
+	font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+	color: var(--text);
+	line-height: 1.7;
+}
+
+.sn-help kbd {
+	display: inline-block;
+	padding: 0.05rem 0.4rem;
+	font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+	font-size: 0.85em;
+	color: var(--text);
+	background: var(--surface-2);
+	border: 1px solid var(--border);
+	border-radius: 5px;
+}
+
+/* ---- dialogs (native <dialog>) ------------------------------------------ */
+
+dialog {
+	width: min(92vw, 30rem);
+	max-height: 85vh;
+	padding: 0;
+	color: var(--text);
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	box-shadow: var(--shadow-lg);
+	overflow: hidden;
+}
+
+dialog::backdrop {
+	background: rgba(31, 30, 29, 0.5);
+	backdrop-filter: blur(2px);
+}
+
+.dialog {
+	display: flex;
+	flex-direction: column;
+	margin: 0;
+	max-height: 85vh;
+}
+
+.dialog-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--gap);
+	padding: 1rem 1.35rem;
+	border-bottom: 1px solid var(--border);
+}
+
+.dialog-title {
+	margin: 0;
+	font-family: var(--font-serif);
+	font-size: 1.1rem;
+	font-weight: 600;
+}
+
+.dialog-close {
+	appearance: none;
+	border: none;
+	background: transparent;
+	color: var(--text-muted);
+	font-size: 1.5rem;
+	line-height: 1;
+	padding: 0 0.25rem;
+	cursor: pointer;
+	border-radius: var(--radius-sm);
+}
+
+.dialog-close:hover {
+	color: var(--text);
+	background: var(--bg);
+}
+
+.dialog-body {
+	padding: 1.5rem 1.35rem;
+	overflow-y: auto;
+}
+
+.dialog-footer {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: 0.75rem;
+	padding: 1rem 1.35rem;
+	border-top: 1px solid var(--border);
+}
+
+/* ---- upload status ------------------------------------------------------ */
+
+#uploadOk,
+#uploadFailed {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	text-align: center;
+}
+
+#uploadOk svg {
+	color: var(--success);
+}
+
+#uploadFailed svg {
+	color: var(--danger);
+}
+
+.upload-status {
+	padding: 1rem 0 0;
+	font-weight: 700;
+	font-size: larger;
+	color: var(--text);
+}
+
+/* ---- monitor: task cards ------------------------------------------------ */
+
+.task-card {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	margin-bottom: 1rem;
+	overflow: hidden;
+	box-shadow: var(--shadow);
+}
+
+.task-card-header {
+	padding: 0.95rem 1.2rem;
+	font-weight: 700;
+	color: var(--text);
+	background: var(--bg);
+	border-bottom: 1px solid var(--border);
+	word-break: break-all;
+}
+
+.task-card-body {
+	padding: 1.2rem;
+}
+
+.task-status {
+	margin-bottom: 0.85rem;
+	color: var(--text-muted);
+	font-size: 0.9rem;
+}
+
+.progress {
+	position: relative;
+	height: 1.6rem;
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: 1rem;
+	overflow: hidden;
+}
+
+.progress-bar {
+	height: 100%;
+	width: 0;
+	background: var(--primary);
+	border-radius: 1rem 0 0 1rem;
+	transition: width 0.3s ease;
+}
+
+.progress-text {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 0.8rem;
+	font-weight: 600;
+	color: var(--text);
+}
+
+#no_task {
+	color: var(--text-muted);
+}
+
+/* ---- badges (shared: batch state + inventory state) --------------------- */
+
+.badge {
+	display: inline-block;
+	padding: 0.15rem 0.6rem;
+	font-size: 0.78rem;
+	font-weight: 700;
+	line-height: 1.4;
+	border-radius: 1rem;
+	white-space: nowrap;
+	color: var(--text);
+	background: var(--bg);
+	border: 1px solid var(--border);
+}
+
+.badge.st-ok {
+	color: var(--success);
+	background: color-mix(in srgb, var(--success) 12%, transparent);
+	border-color: color-mix(in srgb, var(--success) 35%, transparent);
+}
+
+.badge.st-missing {
+	color: var(--danger);
+	background: color-mix(in srgb, var(--danger) 12%, transparent);
+	border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+}
+
+.badge.st-suspect {
+	color: #9a6b00;
+	background: rgba(214, 158, 46, 0.15);
+	border-color: rgba(214, 158, 46, 0.45);
+}
+
+.badge.st-none {
+	color: var(--text-muted);
+}
+
+/* ---- batch download control (監控頁) ------------------------------------ */
+
+.batch-control {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 0.75rem;
+	padding: 0.85rem 1.2rem;
+	margin-bottom: 1rem;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	box-shadow: var(--shadow);
+}
+
+.batch-state {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+}
+
+.batch-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+
+.batch-label {
+	font-weight: 700;
+	color: var(--text);
+}
+
+/* ---- 待下載清單 (監控頁) ------------------------------------------------ */
+
+.pending-section {
+	margin-top: 0.5rem;
+}
+
+.pending-head {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	margin-bottom: 0.6rem;
+	font-weight: 700;
+	color: var(--text);
+}
+
+.pending-list {
+	display: flex;
+	flex-direction: column;
+	gap: 0.4rem;
+}
+
+.pending-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	padding: 0.6rem 1rem;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	box-shadow: var(--shadow);
+}
+
+.pending-name {
+	color: var(--text);
+	word-break: break-all;
+}
+
+/* ---- 懸浮說明 tooltip (data-tip) --------------------------------------- */
+
+[data-tip] {
+	position: relative;
+}
+
+[data-tip]::after,
+[data-tip]::before {
+	position: absolute;
+	left: 50%;
+	opacity: 0;
+	visibility: hidden;
+	transition: opacity 0.12s ease;
+	pointer-events: none;
+	z-index: 30;
+}
+
+[data-tip]::after {
+	content: attr(data-tip);
+	top: calc(100% + 9px);
+	transform: translateX(-50%);
+	width: max-content;
+	max-width: 15rem;
+	white-space: normal;
+	text-align: left;
+	line-height: 1.5;
+	padding: 0.6rem 0.75rem;
+	font-size: 0.78rem;
+	font-weight: 500;
+	color: var(--surface-2);
+	background: var(--text);
+	border-radius: var(--radius-sm);
+	box-shadow: var(--shadow-lg);
+}
+
+[data-tip]::before {
+	content: "";
+	top: calc(100% + 3px);
+	transform: translateX(-50%);
+	border: 6px solid transparent;
+	border-bottom-color: var(--text);
+}
+
+[data-tip]:hover::after,
+[data-tip]:hover::before,
+[data-tip]:focus-visible::after,
+[data-tip]:focus-visible::before {
+	opacity: 1;
+	visibility: visible;
+}
+
+/* ---- inventory (資料庫頁) ------------------------------------------------ */
+
+.inv-intro {
+	margin: 0 0 1.25rem;
+	color: var(--text-muted);
+	font-size: 0.9rem;
+}
+
+.inv-actions {
+	align-items: center;
+	gap: 0.75rem;
+}
+
+.inv-summary {
+	margin-right: auto;
+	color: var(--text-muted);
+	font-size: 0.9rem;
+}
+
+.btn-sm {
+	padding: 0.32rem 0.7rem;
+	font-size: 0.82rem;
+	font-weight: 600;
+}
+
+.inv-series {
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	margin-bottom: 0.85rem;
+	background: var(--surface-2);
+	overflow: hidden;
+}
+
+.inv-series-head {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 0.6rem 1rem;
+	padding: 0.8rem 1rem;
+	cursor: pointer;
+	background: var(--bg);
+	list-style: none;
+}
+
+.inv-series-head::-webkit-details-marker {
+	display: none;
+}
+
+.inv-series-head::before {
+	content: "▸";
+	color: var(--text-muted);
+	transition: transform 0.15s;
+}
+
+.inv-series[open] > .inv-series-head::before {
+	transform: rotate(90deg);
+}
+
+.inv-series-name {
+	font-weight: 700;
+	color: var(--text);
+}
+
+.inv-series-meta {
+	color: var(--text-muted);
+	font-size: 0.85rem;
+}
+
+.inv-series-actions {
+	display: flex;
+	gap: 0.5rem;
+	margin-left: auto;
+}
+
+.inv-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.9rem;
+}
+
+.inv-table td {
+	padding: 0.55rem 1rem;
+	border-top: 1px solid var(--border);
+	vertical-align: middle;
+}
+
+.inv-table td:first-child {
+	white-space: nowrap;
+	font-weight: 600;
+}
+
+.inv-size {
+	color: var(--text-muted);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.inv-row-actions {
+	display: flex;
+	gap: 0.4rem;
+	justify-content: flex-end;
+}
+
+@media (max-width: 40rem) {
+	.inv-series-actions {
+		margin-left: 0;
+		width: 100%;
+	}
+
+	.inv-table td {
+		padding: 0.5rem 0.6rem;
+	}
+}
+
+/* ---- 使用說明頁 (help) -------------------------------------------------- */
+
+.help-section p {
+	margin: 0 0 1rem;
+	color: var(--text);
+}
+
+.help-section p:last-child {
+	margin-bottom: 0;
+}
+
+.help-list {
+	margin: 0 0 1rem;
+	padding-left: 1.4rem;
+	color: var(--text);
+}
+
+.help-list li {
+	margin: 0.4rem 0;
+	line-height: 1.65;
+}
+
+.help-list li:last-child {
+	margin-bottom: 0;
+}
+
+.help-section a {
+	color: var(--primary);
+	text-decoration: none;
+}
+
+.help-section a:hover {
+	color: var(--primary-hover);
+	text-decoration: underline;
+}
+
+.help-section code {
+	font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+	font-size: 0.88em;
+	padding: 0.05rem 0.35rem;
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: 5px;
+	word-break: break-all;
+}
+
+.help-section dl.sn-help dt {
+	margin-top: 0.85rem;
+}
+
+.help-section dl.sn-help dt:first-child {
+	margin-top: 0;
+}
+
+/* readonly masked-cookie display: muted to signal it is not directly editable */
+#cookie_masked[readonly] {
+	color: var(--text-muted);
+	background: var(--bg);
+	cursor: default;
+}

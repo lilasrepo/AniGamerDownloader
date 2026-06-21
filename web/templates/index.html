@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<link rel="shortcut icon" href="../static/img/AniGamerDownloader.ico" type="image/x-icon">
+		<link rel="stylesheet" href="../static/css/app.css">
+		<title>AniGamerDownloader控制臺</title>
+	</head>
+	<body>
+		<!-- Top navigation bar -->
+		<header class="topbar">
+			<a class="brand" href="#settings">AniGamerDownloader控制臺</a>
+			<nav class="tabs" role="tablist" aria-label="主導覽">
+				<button class="tab" type="button" role="tab" id="tab-settings" aria-controls="panel-settings" aria-selected="true">設定</button>
+				<button class="tab" type="button" role="tab" id="tab-monitor" aria-controls="panel-monitor" aria-selected="false">監控</button>
+				<button class="tab" type="button" role="tab" id="tab-snlist" aria-controls="panel-snlist" aria-selected="false">下載清單</button>
+				<button class="tab" type="button" role="tab" id="tab-inventory" aria-controls="panel-inventory" aria-selected="false">資料庫</button>
+				<button class="tab" type="button" role="tab" id="tab-manual" aria-controls="panel-manual" aria-selected="false">手動任務</button>
+				<button class="tab" type="button" role="tab" id="tab-help" aria-controls="panel-help" aria-selected="false">使用說明</button>
+			</nav>
+		</header>
+
+		<main class="content">
+			<!-- ====================== Settings ====================== -->
+			<section class="panel" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings">
+				<section class="section">
+					<h2>路徑設定</h2>
+					<div class="grid">
+						<label class="field span-full">
+							<span class="field-label">下載目錄</span>
+							<input id="bangumi_dir" type="text" placeholder="放空則存放於程式所在資料夾">
+						</label>
+						<label class="field span-full">
+							<span class="field-label">暫存目錄</span>
+							<input id="temp_dir" type="text" placeholder="放空則存放於程式所在資料夾">
+						</label>
+					</div>
+				</section>
+
+				<section class="section">
+					<h2>下載設定</h2>
+					<div class="grid">
+						<label class="field switch">
+							<span class="field-label">建立番劇資料夾</span>
+							<span class="switch-control"><input id="classify_bangumi" type="checkbox"><span class="slider"></span></span>
+						</label>
+						<label class="field switch">
+							<span class="field-label">鎖定解析度　　</span>
+							<span class="switch-control"><input id="lock_resolution" type="checkbox"><span class="slider"></span></span>
+						</label>
+						<label class="field switch">
+							<span class="field-label">分段下載模式　</span>
+							<span class="switch-control"><input id="segment_download_mode" type="checkbox"><span class="slider"></span></span>
+						</label>
+						<label class="field switch">
+							<span class="field-label">檔名添加番劇名</span>
+							<span class="switch-control"><input id="add_bangumi_name_to_video_filename" type="checkbox"><span class="slider"></span></span>
+						</label>
+						<label class="field switch">
+							<span class="field-label">檔名添加解析度</span>
+							<span class="switch-control"><input id="add_resolution_to_video_filename" type="checkbox"><span class="slider"></span></span>
+						</label>
+						<label class="field switch">
+							<span class="field-label">模擬手機端解析</span>
+							<span class="switch-control"><input id="use_mobile_api" type="checkbox"><span class="slider"></span></span>
+						</label>
+						<label class="field switch">
+							<span class="field-label">下載彈幕　　　</span>
+							<span class="switch-control"><input id="danmu" type="checkbox"><span class="slider"></span></span>
+						</label>
+						<label class="field">
+							<span class="field-label">下載解析度　　</span>
+							<select id="download_resolution">
+								<option value="1080">1080P</option>
+								<option value="720">720P</option>
+								<option value="540">540P</option>
+								<option value="480">480P</option>
+								<option value="360">360P</option>
+							</select>
+						</label>
+						<label class="field">
+							<span class="field-label">預設下載模式　</span>
+							<select id="default_download_mode">
+								<option value="latest">latest（最後一集）</option>
+								<option value="all">all（全部劇集）</option>
+								<option value="largest-sn">largest-sn（最近上傳）</option>
+							</select>
+						</label>
+						<label class="field">
+							<span class="field-label">更新間隔　　　</span>
+							<input id="check_frequency" type="number" min="1" step="1" placeholder="單位分鐘">
+						</label>
+						<label class="field">
+							<span class="field-label">最大並發下載數</span>
+							<input id="multi-thread" type="number" min="1" step="1" placeholder="正整數">
+						</label>
+						<label class="field">
+							<span class="field-label">最大並發分段數</span>
+							<input id="multi_downloading_segment" type="number" min="1" step="1" placeholder="正整數">
+						</label>
+						<label class="field">
+							<span class="field-label">影片檔名前綴　</span>
+							<input id="customized_video_filename_prefix" type="text">
+						</label>
+						<label class="field">
+							<span class="field-label">影片檔名後綴　</span>
+							<input id="customized_video_filename_suffix" type="text">
+						</label>
+						<label class="field">
+							<span class="field-label">下載冷卻時間(秒)</span>
+							<input id="download_cd" type="number" min="0" step="1" placeholder="正整數">
+						</label>
+						<label class="field">
+							<span class="field-label">SN解析冷卻時間(秒)</span>
+							<input id="parse_sn_cd" type="number" min="0" step="1" placeholder="正整數">
+						</label>
+						<div class="field span-2">
+							<span class="field-label">請求UA</span>
+							<input id="ua" type="text" placeholder="若有使用cookie請與取得cookie的瀏覽器保持一致">
+							<button id="getUaBtn" type="button" class="btn btn-dark">取得當前UA</button>
+						</div>
+					</div>
+				</section>
+
+				<section class="section">
+					<h2>帳號 Cookie</h2>
+					<p class="inv-intro">貼上從瀏覽器取得的 <code>Cookie:</code> 標頭字串（用以登入 VIP 帳號下載 1080P），儲存後寫入 <code>cookie.txt</code>。Cookie 必須與上方「請求UA」<strong>來自同一個瀏覽器</strong>，否則巴哈會視為異常登入。詳細取得步驟見「使用說明」頁。Docker 版無法手動編輯檔案，請由此貼上。</p>
+					<dl class="sn-help">
+						<dt>注意</dt>
+						<dd>目前 cookie 內容以遮罩顯示（只露出每個值的頭尾各兩碼）；若要更新，請直接貼上完整新值再儲存。</dd>
+						<dd>留空儲存會清除 cookie（改用免費帳號，僅能下載低畫質）。</dd>
+					</dl>
+					<div class="grid">
+						<label class="field span-full">
+							<span class="field-label">目前 Cookie（遮罩顯示）</span>
+							<input id="cookie_masked" type="text" readonly placeholder="尚未設定 cookie">
+						</label>
+						<label class="field span-full">
+							<span class="field-label">貼上新的 Cookie 標頭字串</span>
+							<textarea id="cookie_text" rows="5" placeholder="例如：ANIME_SIGN=xxxx; BAHARUNE=yyyy; ..."></textarea>
+						</label>
+					</div>
+					<div class="actions">
+						<button id="cookieReloadBtn" type="button" class="btn btn-danger">重新載入 Cookie</button>
+						<button id="cookieSubmit" type="button" class="btn btn-primary">儲存 Cookie 與 UA</button>
+					</div>
+				</section>
+
+				<section class="section">
+					<h2>代理設定</h2>
+					<div class="grid">
+						<label class="field switch span-full">
+							<span class="field-label">代理總開關</span>
+							<span class="switch-control"><input id="use_proxy" type="checkbox"><span class="slider"></span></span>
+						</label>
+						<label class="field">
+							<span class="field-label">選擇協議　</span>
+							<select id="proxy_protocol">
+								<option value="socks5">SOCKS5</option>
+								<option value="socks5h">SOCKS5H</option>
+								<option value="http">HTTP</option>
+								<option value="https">HTTPS</option>
+							</select>
+						</label>
+						<label class="field">
+							<span class="field-label">伺服器IP</span>
+							<input id="proxy_ip" type="text" placeholder="127.0.0.1">
+						</label>
+						<label class="field">
+							<span class="field-label">Port</span>
+							<input id="proxy_port" type="text" placeholder="1080">
+						</label>
+						<label class="field span-2">
+							<span class="field-label">用戶名</span>
+							<input id="proxy_user" type="text" placeholder="沒有放空即可">
+						</label>
+						<label class="field span-2">
+							<span class="field-label">密碼</span>
+							<input id="proxy_passwd" type="password" placeholder="沒有放空即可" autocomplete>
+						</label>
+					</div>
+				</section>
+
+				<section class="section">
+					<h2>其他</h2>
+					<div class="grid">
+						<label class="field switch">
+							<span class="field-label">啟動時檢查更新</span>
+							<span class="switch-control"><input id="check_latest_version" type="checkbox"><span class="slider"></span></span>
+						</label>
+						<label class="field switch">
+							<span class="field-label">每次檢查讀取下載清單</span>
+							<span class="switch-control"><input id="read_sn_list_when_checking_update" type="checkbox"><span class="slider"></span></span>
+						</label>
+						<label class="field switch">
+							<span class="field-label">每次檢查讀取配置</span>
+							<span class="switch-control"><input id="read_config_when_checking_update" type="checkbox"><span class="slider"></span></span>
+						</label>
+						<label class="field switch">
+							<span class="field-label">記錄日誌</span>
+							<span class="switch-control"><input id="save_logs" type="checkbox"><span class="slider"></span></span>
+						</label>
+						<label class="field">
+							<span class="field-label">日誌數量</span>
+							<input id="quantity_of_logs" type="number" min="1" step="1" placeholder="正整數, 每天一個日誌">
+						</label>
+					</div>
+				</section>
+
+				<div class="actions">
+					<button id="saveBtn" type="button" class="btn btn-primary">儲存</button>
+					<button id="reloadBtn" type="button" class="btn btn-danger">重載配置</button>
+				</div>
+			</section>
+
+			<!-- ====================== Monitor ====================== -->
+			<section class="panel" id="panel-monitor" role="tabpanel" aria-labelledby="tab-monitor">
+				<div class="batch-control">
+					<div class="batch-state">
+						<span class="batch-label">批次自動下載</span>
+						<span id="batch_state_badge" class="badge">讀取中…</span>
+					</div>
+					<div class="batch-actions">
+						<button id="checkNowBtn" type="button" class="btn btn-secondary" disabled
+							data-tip="立即掃描一次下載清單 (sn_list)，跳過剩餘的等待時間，馬上檢查有沒有新集數要下載。">立即檢查</button>
+						<button id="batchToggleBtn" type="button" class="btn btn-secondary" disabled
+							data-tip="暫停：停止排入新的下載任務（已經在下載的會繼續跑完）。繼續：恢復自動排程。只影響「要不要找新任務」，不會中斷進行中的下載。">—</button>
+						<button id="shutdownBtn" type="button" class="btn btn-danger" disabled
+							data-tip="完全結束 AniGamerDownloader 程式本身（含背景自動下載與此控制臺）。進行中的下載會中斷，需重新執行 aniGamer.bat（系統匣）才能再使用。">停止程式</button>
+					</div>
+				</div>
+				<div class="task-card" id="no_task">
+					<div class="task-card-header" style="text-align:center">【當前無任務】</div>
+					<div class="task-card-body" style="text-align:center">當前沒有正在下載的任務</div>
+				</div>
+				<div id="task_info_panel"></div>
+				<div id="pending_section" class="pending-section" style="display:none">
+					<div class="pending-head">待下載清單<span id="pending_count" class="badge st-none">0</span></div>
+					<div id="pending_list" class="pending-list"></div>
+				</div>
+			</section>
+
+			<!-- ====================== sn_list ====================== -->
+			<section class="panel" id="panel-snlist" role="tabpanel" aria-labelledby="tab-snlist">
+				<section class="section">
+					<h2>下載清單</h2>
+					<dl class="sn-help">
+						<dt>格式：</dt>
+						<dd><code>
+								@分類(可空)<br>
+								sn碼 下載模式(可空) 	&lt;重命名&gt;(可空) #注釋(可空)
+							</code></dd>
+
+						<dt>說明</dt>
+						<dd>注釋 <kbd>#</kbd> 後面的所有字符程序均不會讀取, 可以用於標記番劇名</dd>
+						<dd>在一排番劇列表的上方 <kbd>@</kbd> 開頭後面的字符將會作為番劇的分類名, 番劇會歸類在此分類名的資料夾下</dd>
+						<dd>若單獨 <kbd>@</kbd> 表示不分類</dd>
+						<dd>用 <kbd>&lt;</kbd> 與 <kbd>&gt;</kbd> 將自定義的番劇名框起來, 下載時將會使用這個名字作為番劇目錄名</dd>
+					</dl>
+					<label class="field span-full">
+						<span class="field-label">下載清單</span>
+						<textarea id="sn_list" rows="8"></textarea>
+					</label>
+					<div class="actions">
+						<button id="snListSubmit" type="button" class="btn btn-primary">提交</button>
+					</div>
+				</section>
+			</section>
+
+
+			<!-- ====================== Database ====================== -->
+			<section class="panel" id="panel-inventory" role="tabpanel" aria-labelledby="tab-inventory">
+				<section class="section">
+					<h2>已下載影片庫存</h2>
+					<p class="inv-intro">對照資料庫紀錄與硬碟實際檔案。可重新整理掃描檔案是否存在（快），或對「已下載」的檔案跑 ffprobe 深度驗證完整性（慢）。缺檔或不完整者可單集或整部重置／立即重新下載。</p>
+					<div class="actions inv-actions">
+						<span id="inv_summary" class="inv-summary"></span>
+						<button id="invRefreshBtn" type="button" class="btn btn-dark">重新整理</button>
+						<button id="invVerifyBtn" type="button" class="btn btn-secondary">深度驗證 (ffprobe)</button>
+					</div>
+					<div id="inventory_list"></div>
+				</section>
+			</section>
+
+			<!-- ====================== Manual tasks ====================== -->
+			<section class="panel" id="panel-manual" role="tabpanel" aria-labelledby="tab-manual">
+				<section class="section">
+					<h2>手動添加任務</h2>
+					<div class="grid">
+						<label class="field span-full">
+							<span class="field-label">影片連結</span>
+							<input id="manual_link" type="text">
+						</label>
+						<label class="field">
+							<span class="field-label">下載模式　　　</span>
+							<select id="manual_mode">
+								<option value="single">single（本集）</option>
+								<option value="latest">latest（最後一集）</option>
+								<option value="all">all（全部劇集）</option>
+								<option value="largest-sn">largest-sn（最近上傳）</option>
+							</select>
+						</label>
+						<label class="field">
+							<span class="field-label">下載解析度　　</span>
+							<select id="manual_resolution">
+								<option value="1080">1080P</option>
+								<option value="720">720P</option>
+								<option value="540">540P</option>
+								<option value="480">480P</option>
+								<option value="360">360P</option>
+							</select>
+						</label>
+						<label class="field switch">
+							<span class="field-label">建立番劇資料夾</span>
+							<span class="switch-control"><input id="manual_classify" type="checkbox" checked><span class="slider"></span></span>
+						</label>
+						<label class="field switch">
+							<span class="field-label">下載彈幕　　　</span>
+							<span class="switch-control"><input id="manual_danmu" type="checkbox"><span class="slider"></span></span>
+						</label>
+						<label class="field">
+							<span class="field-label">最大並發下載數</span>
+							<input id="manual_thread_limit" type="number" min="1" step="1" placeholder="正整數">
+						</label>
+					</div>
+					<div class="actions">
+						<button id="manualSubmit" type="button" class="btn btn-primary">提交</button>
+					</div>
+				</section>
+			</section>
+
+			<!-- ====================== Help ====================== -->
+			<section class="panel" id="panel-help" role="tabpanel" aria-labelledby="tab-help">
+				<section class="section help-section">
+					<h2>一、如何取得並貼上 Cookie</h2>
+					<p>下載 VIP 1080P 需要登入帳號。本程式以瀏覽器的 <code>Cookie:</code> 標頭代替帳密登入，步驟如下：</p>
+					<ol class="help-list">
+						<li>用電腦瀏覽器（Chrome／Edge／Firefox 皆可）登入<a href="https://ani.gamer.com.tw/" target="_blank" rel="noopener">巴哈姆特動畫瘋</a>，確認右上角顯示為已登入的 VIP 帳號。</li>
+						<li>隨意開啟一部動畫的播放頁（網址形如 <code>https://ani.gamer.com.tw/animeVideo.php?sn=12345</code>）。</li>
+						<li>按 <kbd>F12</kbd> 開啟開發者工具，切到 <strong>Network（網路）</strong> 分頁，重新整理一次頁面。</li>
+						<li>在請求清單中點任一筆對 <code>ani.gamer.com.tw</code> 的請求，於 <strong>Request Headers（請求標頭）</strong> 中找到 <code>cookie:</code> 那一整列。</li>
+						<li>複製 <code>cookie:</code> 後面<strong>整串</strong>值（形如 <code>ANIME_SIGN=...; BAHARUNE=...; ...</code>）。</li>
+						<li>在同一個 Network 請求的標頭中，一併找到 <code>user-agent:</code> 並複製它的值（UA）。</li>
+						<li>到本程式的「<strong>設定</strong>」分頁，在「帳號 Cookie」區塊把 cookie 字串貼進文字框，並在上方「請求UA」欄位貼上 UA（或按「取得當前UA」自動帶入目前這個瀏覽器的 UA），按「儲存 Cookie 與 UA」。</li>
+					</ol>
+					<dl class="sn-help">
+						<dt>重點</dt>
+						<dd>Cookie 與 UA <strong>必須來自同一個瀏覽器</strong>。若 UA 與產生 cookie 的瀏覽器不符，巴哈會視為異常登入。</dd>
+						<dd>Cookie 會過期；之後下載失敗或畫質掉回低畫質時，重做上述步驟更新 cookie 即可。</dd>
+						<dd>Cookie 等同登入憑證，請勿外流。本程式僅將其存於本機（或掛載 volume）的 <code>cookie.txt</code>。</dd>
+					</dl>
+				</section>
+
+				<section class="section help-section">
+					<h2>二、設定下載清單（sn_list）</h2>
+					<p>「<strong>下載清單</strong>」分頁就是自動追番的來源。每行一部番劇：</p>
+					<ol class="help-list">
+						<li>從動畫播放頁網址 <code>?sn=</code> 後面的數字就是該集的 <strong>sn 碼</strong>。</li>
+						<li>每行格式：<code>sn碼 下載模式 &lt;自訂番名&gt; #註解</code>，後三者皆可省略。</li>
+						<li>下載模式常用：<code>all</code>（整部）、<code>latest</code>（最後一集）、<code>largest-sn</code>（最近上傳）；省略則用「設定」頁的預設模式。</li>
+						<li>以 <code>@分類名</code> 起一行，其下的番劇會歸到該分類資料夾；單獨 <code>@</code> 表示不分類。</li>
+						<li><code>#</code> 之後的文字程式不會讀取，可用來標記番名備註。</li>
+					</ol>
+					<p>編輯完按「提交」即存檔。可到「監控」分頁按「立即檢查」讓程式馬上掃描一次。</p>
+				</section>
+
+				<section class="section help-section">
+					<h2>三、解析度與輸出資料夾</h2>
+					<ul class="help-list">
+						<li><strong>下載解析度</strong>：在「設定」分頁選擇（最高 1080P，需 VIP cookie）。開啟「鎖定解析度」則找不到該畫質時不自動降級。</li>
+						<li><strong>下載目錄</strong>：影片最終存放處。留空則存在程式所在資料夾下的 <code>data/bangumi</code>。</li>
+						<li><strong>暫存目錄</strong>：下載與合併過程的暫存區。建議與下載目錄<strong>放在同一個磁碟</strong>，完成後搬移才會是瞬間（跨磁碟會慢）。留空則回退到 <code>data/temp</code>。</li>
+						<li>「建立番劇資料夾」開啟時，每部番劇各自一個資料夾，較好整理。</li>
+					</ul>
+				</section>
+
+				<section class="section help-section">
+					<h2>四、Docker 版（NAS／mac／Linux）</h2>
+					<p>Docker 版以背景 daemon + 本網頁介面運作，設定與輸出皆透過<strong>掛載 volume</strong>：</p>
+					<ul class="help-list">
+						<li>掛載 <code>/data</code>：存放 <code>config.json</code>、<code>cookie.txt</code>、資料庫與日誌。第一次啟動會自動產生預設 <code>config.json</code>。</li>
+						<li>掛載一個<strong>輸出目錄</strong>（對應 NAS 上的下載資料夾），並在「設定」頁把「下載目錄」指到容器內對應的掛載路徑。</li>
+						<li>容器內無法手動編輯 <code>cookie.txt</code>，請改用本介面「<strong>設定</strong>」分頁的「帳號 Cookie」區塊貼上。</li>
+						<li><strong>密碼保護（BasicAuth）</strong>：Docker 版強制啟用簡易密碼，由環境變數設定；空密碼會被拒絕啟動。請只在<strong>區域網路</strong>內使用，勿對外網直接暴露。</li>
+						<li>首次連上後，依序：貼 cookie → 設下載目錄 → 編輯下載清單 → 「立即檢查」開始追番。</li>
+					</ul>
+				</section>
+
+				<section class="section help-section">
+					<h2>五、常見問題</h2>
+					<dl class="sn-help">
+						<dt>下載失敗或畫質掉回低畫質</dt>
+						<dd>多半是 cookie 過期或與 UA 不符。重新取得 cookie 與 UA（同一瀏覽器）後再儲存。</dd>
+						<dt>合併／轉檔失敗</dt>
+						<dd>本程式需要 <code>ffmpeg</code>。桌面版請確認 <code>ffmpeg</code> 在 PATH 或放在程式旁；Docker 映像已內含。</dd>
+						<dt>檔名出現 E01 與舊的 E1 混在一起</dt>
+						<dd>集數補零規則已改為「預設兩碼、破百自動三碼」。舊的下載檔仍是舊命名，資料庫盤點時可能把舊檔當成缺漏；必要時手動改名或忽略。</dd>
+						<dt>設定改了沒生效</dt>
+						<dd>記得按「儲存」。部分設定會在下一輪檢查才套用，可到「監控」按「立即檢查」加速。</dd>
+						<dt>反向代理掛在子路徑無法運作</dt>
+						<dd>本介面部分請求使用根路徑，建議 Docker 版掛在反向代理的<strong>根路徑</strong>，不要掛在子目錄。</dd>
+					</dl>
+				</section>
+			</section>
+		</main>
+
+		<!-- Submit-request dialog -->
+		<dialog id="uploadStatus">
+			<form method="dialog" class="dialog">
+				<header class="dialog-header">
+					<h4 class="dialog-title">提交結果</h4>
+					<button class="dialog-close" aria-label="關閉">&times;</button>
+				</header>
+				<div class="dialog-body">
+					<div id="uploadOk" style="display:none; text-align:center;">
+						<svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+							<circle cx="12" cy="12" r="10"></circle>
+							<path d="M8 12l3 3 5-6"></path>
+						</svg>
+						<p class="upload-status">配置已成功提交</p>
+					</div>
+					<div id="uploadFailed" style="display:none; text-align:center;">
+						<svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+							<circle cx="12" cy="12" r="10"></circle>
+							<path d="M15 9l-6 6"></path>
+							<path d="M9 9l6 6"></path>
+						</svg>
+						<p class="upload-status">配置提交失敗</p>
+					</div>
+				</div>
+				<footer class="dialog-footer">
+					<button type="submit" class="btn btn-secondary">關閉</button>
+				</footer>
+			</form>
+		</dialog>
+
+		<script src="../static/js/settings_id_list.js"></script>
+		<script type="module" src="../static/js/app.js"></script>
+	</body>
+</html>

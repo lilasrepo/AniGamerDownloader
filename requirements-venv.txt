@@ -1,0 +1,21 @@
+# Dependencies for the local AniGamerDownloader fork (Python 3.13).
+# greenlet/gevent/lxml min-bumped so pip selects cp313 wheels.
+# Flask stack is modern (3.x). Websocket libs (flask_sockets/gevent_websocket)
+# were removed when the web dashboard moved to polling.
+termcolor==1.1.0
+pip-system-certs==4.0
+requests==2.31.0
+chardet==3.0.4
+beautifulsoup4==4.11.1
+pysocks==1.7.1
+pyhttpx
+# --- C extensions: bumped to first cp311-wheel releases ---
+greenlet>=3.0.3
+gevent>=24.2.1
+lxml>=5.2.0
+# --- Flask stack (web dashboard only, off by default) ---
+flask>=3.0
+flask_basicauth==0.2.0
+# --- System-tray launcher (aniGamer.bat -> src/tray.py; the main launcher) ---
+pystray>=0.19
+Pillow>=10.0

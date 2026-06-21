@@ -1,0 +1,46 @@
+# AniGamerDownloader — Docker shell example compose.
+#
+# Run from the repo ROOT (build context must see core/ app/ web/):
+#   ANIGAMER_WEB_PASSWORD='a-strong-secret' docker compose -f shells/docker/docker-compose.yml up -d
+#
+# Or pull a prebuilt multi-arch image from a registry instead of building (see
+# docs/DOCKER.md) by replacing `build:` with `image: ghcr.io/<you>/anigamerdownloader:latest`.
+#
+# Security: the dashboard is forced onto 0.0.0.0 with BasicAuth. Keep this on the
+# LAN only. The container REFUSES to start if ANIGAMER_WEB_PASSWORD is empty or a
+# default placeholder (admin/password/changeme).
+
+services:
+  anigamerdownloader:
+    build:
+      # context = repo root (two levels up from this compose file).
+      context: ../..
+      dockerfile: shells/docker/Dockerfile
+    image: anigamerdownloader:local
+    container_name: anigamerdownloader
+    restart: unless-stopped
+
+    environment:
+      # REQUIRED — no default; empty/placeholder is rejected at boot.
+      ANIGAMER_WEB_PASSWORD: "${ANIGAMER_WEB_PASSWORD:?set a strong password, e.g. export ANIGAMER_WEB_PASSWORD=...}"
+      # Optional:
+      ANIGAMER_WEB_USER: "admin"
+      ANIGAMER_WEB_PORT: "5000"
+      ANIGAMER_RESOLUTION: "1080"
+      ANIGAMER_CHECK_FREQ: "5"
+      # Where downloads land INSIDE the container. Left at the default below, they
+      # go into the /app/data volume (./data on the host). Point it at the separate
+      # output mount instead (and uncomment the matching volume) for a NAS share.
+      # ANIGAMER_OUTPUT_DIR: "/output"
+
+    volumes:
+      # Persistent runtime data: config.json / cookie.txt / aniGamer.db / logs /
+      # (default) bangumi output. Survives container recreation.
+      - ./data:/app/data
+      # Optional separate output share (e.g. a NAS volume). Uncomment + set
+      # ANIGAMER_OUTPUT_DIR=/output above to send finished files here instead.
+      # - /volume1/anime:/output
+
+    ports:
+      # host:container — change the LEFT side to publish on a different host port.
+      - "5000:5000"
