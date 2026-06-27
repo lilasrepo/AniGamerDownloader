@@ -31,6 +31,7 @@ import subprocess
 import shutil
 import signal
 import time
+from datetime import datetime
 
 from gevent import spawn
 from flask import Flask, request, jsonify
@@ -227,6 +228,41 @@ def tasks_progress_json():
     # Polling endpoint: active = tasks currently downloading/parsing (have a progress bar);
     # pending = scheduled tasks still waiting for a concurrency slot.
     return jsonify({'active': state.tasks_progress_rate, 'pending': state.pending_tasks})
+
+
+def _tail_lines(path, n):
+    # Read the last n lines of a UTF-8 text file by seeking from the end in blocks,
+    # so a whole day's log is never loaded into memory. Returns decoded lines
+    # (newlines stripped), oldest-first. Missing file -> empty list.
+    if not os.path.isfile(path):
+        return []
+    n = max(1, min(int(n), 2000))
+    block = 8192
+    data = b''
+    with open(path, 'rb') as f:
+        f.seek(0, os.SEEK_END)
+        pos = f.tell()
+        # read backwards until we have n+1 newlines (so the n-th line is complete) or reach the start
+        while pos > 0 and data.count(b'\n') <= n:
+            read_size = min(block, pos)
+            pos -= read_size
+            f.seek(pos)
+            data = f.read(read_size) + data
+    return data.decode('utf-8', errors='replace').splitlines()[-n:]
+
+
+@app.route('/data/log_tail', methods=['GET'])
+def log_tail():
+    # Live-log polling for the monitor page: tail today's download log
+    # (data/logs/YYYY-MM-DD.log — the file the daemon's err_print always writes).
+    # `lines` = how many trailing lines to return (default 300, capped at 2000).
+    try:
+        n = int(request.args.get('lines', 300))
+    except (TypeError, ValueError):
+        n = 300
+    name = datetime.now().strftime('%Y-%m-%d') + '.log'
+    path = os.path.join(Config.logs_dir, name)
+    return jsonify({'file': name, 'exists': os.path.isfile(path), 'lines': _tail_lines(path, n)})
 
 
 @app.route('/sn_list', methods=['POST'])

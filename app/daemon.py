@@ -740,9 +740,15 @@ def user_exit(signum, frame):
     sys.exit(255)
 
 
+def _version_tuple(v):
+    # 'v0.1.1' -> (0, 1, 1); compares correctly across multi-dot semver,
+    # unlike float() which chokes on a second '.'. Non-numeric parts are dropped.
+    return tuple(int(p) for p in str(v).lstrip('vV').split('.') if p.isdigit())
+
+
 def check_new_version():
     remote_version = Config.read_latest_version_on_github()
-    if float(settings['AniGamerDownloader_version'][1:]) < float(remote_version['tag_name'][1:]):
+    if _version_tuple(settings['AniGamerDownloader_version']) < _version_tuple(remote_version['tag_name']):
         msg = '發現GitHub上有新版本: '+remote_version['tag_name']+'\n更新內容:\n'+remote_version['body']+'\n'
         err_print(0, msg, status=1, no_sn=True)
 

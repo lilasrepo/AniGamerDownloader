@@ -252,7 +252,9 @@ async function postCookie() {
 // ============================================================================
 
 const POLL_URL = 'data/tasks_progress_json';
+const LOG_URL = 'data/log_tail?lines=100';
 const POLL_INTERVAL = 1000;
+let lastLogText = '';      // last rendered log text; skip DOM churn when unchanged
 
 let monitorActive = false; // true only while the Monitor tab is the active tab
 let timer = null;          // setTimeout handle for the next poll
@@ -316,6 +318,25 @@ function renderTasks(payload) {
 	payload = payload && typeof payload === 'object' ? payload : {};
 	renderActive(payload.active || {});
 	renderPending(payload.pending || {});
+}
+
+// Live log: { file, exists, lines: [...] } from data/log_tail. Re-render only on
+// change so we don't clobber the user's text selection / scroll position each second.
+function renderLog(payload) {
+	const view = byId('log_view');
+	if (!view) return;
+	const lines = (payload && payload.lines) || [];
+	const text = lines.length
+		? lines.join('\n')
+		: (payload && payload.exists ? '（今日日誌為空）' : '（今日尚無日誌檔，下載開始後才會出現）');
+	byId('log_file').textContent = payload && payload.file ? '(' + payload.file + ')' : '';
+	if (text === lastLogText) return;
+	lastLogText = text;
+	const auto = byId('log_autoscroll');
+	const prevTop = view.scrollTop;
+	view.textContent = text;
+	// stick to the bottom when auto-scroll is on; otherwise keep the user where they were
+	view.scrollTop = (!auto || auto.checked) ? view.scrollHeight : prevTop;
 }
 
 // Pending list: scheduled tasks still waiting for a concurrency slot (not yet downloading, no progress bar).
@@ -392,15 +413,26 @@ function poll() {
 	}
 	inFlight = true;
 	controller = new AbortController();
+	const opts = { signal: controller.signal };
 
-	fetch(POLL_URL, { signal: controller.signal })
-		.then(function (resp) {
+	Promise.all([
+		fetch(POLL_URL, opts).then(function (resp) {
 			if (!resp.ok) {
 				throw new Error('HTTP ' + resp.status);
 			}
 			return resp.json();
+		}),
+		// log is best-effort: a failure here must not break progress polling
+		fetch(LOG_URL, opts).then(function (resp) {
+			return resp.ok ? resp.json() : null;
+		}).catch(function () {
+			return null;
+		}),
+	])
+		.then(function (results) {
+			renderTasks(results[0]);
+			if (results[1]) renderLog(results[1]);
 		})
-		.then(renderTasks)
 		.catch(function () {
 			// swallow network / abort errors; the next poll will retry
 		})
