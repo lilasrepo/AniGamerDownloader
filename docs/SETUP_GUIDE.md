@@ -14,7 +14,7 @@ cd AniGamerDownloader
 # 虛擬環境（Python 3.13）
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements-venv.txt
-.venv\Scripts\python -m pip install pywebview    # 只有桌面視窗需要
+.venv\Scripts\python -m pip install -r shells\requirements-desktop.txt   # 桌面視窗需要 (pywebview + 打包工具)
 ```
 
 - **ffmpeg** 是硬性需求（解密 + 合併分段）：確保系統 `PATH` 上有 `ffmpeg`，或把 `ffmpeg.exe` 放到程式目錄。
@@ -82,7 +82,8 @@ python -m venv .venv
 | 症狀 | 原因 / 解法 |
 |---|---|
 | `UnicodeEncodeError: 'cp950'...` | 終端非 UTF-8；入口已自動設 UTF-8，仍出錯就 `set PYTHONUTF8=1`。 |
-| 檔案沒下到指定目錄 | `config.json` 的 `bangumi_dir`/`temp_dir` 路徑不存在會**靜默退回** `data\bangumi`、`data\temp`；確認路徑存在。 |
+| 檔案沒下到指定目錄 | `config.json` 的 `bangumi_dir`/`temp_dir` 路徑不存在時會退回 `data\bangumi`、`data\temp`，並在日誌印**一次紅色警告**；照警告建立原資料夾，或到「設定」分頁改成實際路徑。 |
+| 之前正常、突然整批下載失敗 | 可能是動畫瘋改版。到「監控」分頁按「網站健檢」（或 `python cli.py --doctor`）看是哪一步壞掉，再對照 [docs/SITE_API.md](SITE_API.md) 修復。 |
 | 畫質只有 720p | cookie 沒設或非 VIP；用 `cli.py -s <sn> -i` 看是否識別到 VIP。 |
 | 登入失效、變遊客 | 出現 `data\invalid_cookie.txt` 代表 cookie 被判失效；重抓放回 `data\cookie.txt`。 |
 | 改了 cookie 沒用 | `ua` 沒對應到取 cookie 的瀏覽器；把該瀏覽器的 User-Agent 填回 `config.json` 的 `ua`。 |
@@ -102,3 +103,41 @@ python -m venv .venv
 | `data\logs\` | 日誌 |
 | `requirements-venv.txt` | 依賴清單 |
 | `aniGamer.bat` | 主啟動器（桌面視窗 + 背景 daemon + 控制臺） |
+
+---
+
+## 7. 更新既有安裝
+
+**狀態全在 `data\`**，更新只換程式碼、不動 `data\`：
+
+- **原始碼**：`git pull` → `.venv\Scripts\python -m pip install -r requirements-venv.txt -r shells\requirements-desktop.txt` → 重新啟動 `aniGamer.bat`。
+- **可攜桌面包 / Docker**：見 [README 的「更新」段](../README.md#更新)。
+
+啟動時若 GitHub 有新版，控制台日誌會提示（僅通知、不自動更新）；比對的是 `lilasrepo/AniGamerDownloader` 的最新 Release。
+
+### 發佈新版（維護者流程）
+
+CI 會擋「程式內版本 ≠ 標籤」的發佈，因此順序固定：
+
+1. 更新 `core/config.py` 的 `AniGamerDownloader_version`（例如 `v0.1.2`），使其**與即將打的標籤一致**。
+2. commit。
+3. 打標籤並推送：`git tag v0.1.2 && git push origin v0.1.2`。
+4. GitHub Actions 先跑 `version-guard`（比對程式內版本與標籤，不一致直接失敗），再建 Windows 可攜包 + Docker 映像並建立 Release。
+5. Release 說明可事後用 `gh release edit <tag> --notes-file ...` 補上。
+
+> 更新檢查用**版本 tuple** 比較，標籤請維持數字式 `vX.Y.Z`。
+
+---
+
+## 8. 搬遷到新電腦
+
+1. **新機安裝**：照 §1 裝好——**Python 3.13**、venv、`requirements-venv.txt` + `shells\requirements-desktop.txt`、以及 `ffmpeg`。
+2. **舊機關閉**：先停掉舊機的程式，避免兩邊同時下載。
+3. **還原資料**（兩種擇一）：
+   - **備份 zip（推薦）**：在舊機控制台「設定」分頁按「備份資料 (zip)」，把 zip 內的 4 個檔解壓到新機的 `data\`。
+   - **手動複製**：把舊機 `data\` 的 `config.json`、`cookie.txt`、`sn_list.txt`、`aniGamer.db` 複製到新機 `data\`。
+4. **cookie 綁 UA、不綁機器**：cookie 可跨機沿用，但 `config.json` 的 `ua` 必須是**當初取 cookie 的瀏覽器 UA**；換了瀏覽器就重取一份。
+5. **下載目錄**：若新機沒有舊的下載碟（例如舊機是 `F:\capture`），啟動時日誌會印**一次紅色警告**並暫時退回 `data\bangumi`；到「設定」分頁改成新機實際路徑，或先把資料夾建好。
+6. **驗收**：`.venv\Scripts\python cli.py -s <sn> -i` 能識別 VIP、列出可用畫質，代表 cookie 與環境正常；也可用「監控」分頁的「網站健檢」。
+
+> 備份 zip **內含 cookie（帳號機密）**，傳輸與保存請小心，勿放到雲端公開資料夾或聊天群組。

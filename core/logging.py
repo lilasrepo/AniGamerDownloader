@@ -17,6 +17,7 @@ working dir) without reading config at import time.
 
 import ctypes
 import os
+import re
 import sys
 import platform
 from datetime import datetime
@@ -173,3 +174,50 @@ def err_print(sn, err_msg, detail='', status=0, no_sn=False, prefix='',
               display=True, display_time=True):
     _default_logger(sn, err_msg, detail=detail, status=status, no_sn=no_sn,
                     prefix=prefix, display=display, display_time=display_time)
+
+
+# --- Diagnostic dumps ---------------------------------------------------------
+# When a site-response parse fails, the raw body is saved to data/logs/diag/ so
+# the operator can see exactly what the site returned. Must never raise: a
+# diagnostics failure must not break the download path.
+
+_last_diag = None  # (step, path) of this process's most recent dump; doctor reads it
+
+
+def dump_diag(step, content, max_keep=20):
+    """Save a raw site response to data/logs/diag/ and return the file path.
+
+    step: short name of the parse boundary (e.g. 'getdeviceid'); non-word
+    characters are sanitized for the filename.
+    content: str or bytes of the offending response body.
+    Returns the written path, or None if the dump itself failed.
+    """
+    global _last_diag
+    try:
+        diag_dir = os.path.join(_default_logs_dir(), 'diag')
+        os.makedirs(diag_dir, exist_ok=True)
+        safe_step = re.sub(r'[^\w.-]', '_', str(step))
+        # microsecond suffix: concurrent workers may hit the same broken step in the same second
+        name = datetime.now().strftime('%Y%m%d-%H%M%S-%f') + '-' + safe_step + '.txt'
+        path = os.path.join(diag_dir, name)
+        data = content if isinstance(content, bytes) else str(content).encode('utf-8')
+        with open(path, 'wb') as f:
+            f.write(data)
+        # keep only the newest max_keep dumps (timestamp prefix sorts chronologically)
+        dumps = sorted(x for x in os.listdir(diag_dir)
+                       if os.path.isfile(os.path.join(diag_dir, x)))
+        for old in dumps[:max(0, len(dumps) - max_keep)]:
+            os.remove(os.path.join(diag_dir, old))
+        _last_diag = (str(step), path)
+        return path
+    except Exception:
+        return None
+
+
+def get_last_diag():
+    return _last_diag
+
+
+def reset_last_diag():
+    global _last_diag
+    _last_diag = None

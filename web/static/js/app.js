@@ -719,6 +719,39 @@ async function checkNow() {
 	}
 }
 
+function formatDoctor(r) {
+	const lines = [];
+	lines.push('網站健檢 sn=' + (r.sn == null ? '(未指定)' : r.sn));
+	if (r.error) lines.push('! ' + r.error);
+	for (const s of (r.steps || [])) {
+		lines.push((s.ok ? '✓ ' : '✗ ') + s.name + ' — ' + s.detail);
+	}
+	lines.push(r.ok ? '結果：正常，各步驟皆通過。' : '結果：異常。');
+	if (!r.ok && r.first_broken) lines.push('中斷步驟代碼：' + r.first_broken + '（對照 docs/SITE_API.md 找對應端點）');
+	if (!r.ok && r.diag) lines.push('原始回應：' + r.diag);
+	return lines.join('\n');
+}
+
+async function runDoctor() {
+	if (!confirm('網站健檢會對動畫瘋發出一次真實解析請求（等同一次手動查詢），確定執行？')) return;
+	const btn = byId('doctorBtn');
+	const out = byId('doctorResult');
+	const prevText = btn.textContent;
+	btn.disabled = true;
+	btn.textContent = '健檢中…';
+	out.style.display = 'block';
+	out.textContent = '健檢中，請稍候…（若帳號非 VIP 需等待廣告時間，約數十秒）';
+	try {
+		const r = await postJson('/doctor', {});
+		out.textContent = formatDoctor(r);
+	} catch (e) {
+		out.textContent = '健檢失敗：' + e.message;
+	} finally {
+		btn.disabled = false;
+		btn.textContent = prevText;
+	}
+}
+
 async function shutdownApp() {
 	if (!confirm('確定要停止整個 AniGamerDownloader 程式？\n進行中的下載會中斷，需重新執行 aniGamer.bat（系統匣）才能再使用。')) return;
 	try {
@@ -832,6 +865,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	byId('invVerifyBtn').addEventListener('click', () => doVerify());
 	byId('batchToggleBtn').addEventListener('click', toggleBatch);
 	byId('checkNowBtn').addEventListener('click', checkNow);
+	byId('doctorBtn').addEventListener('click', runDoctor);
 	byId('shutdownBtn').addEventListener('click', shutdownApp);
 
 	// tab buttons — selectTab assigns location.hash so back/forward works

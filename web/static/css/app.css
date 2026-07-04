@@ -766,6 +766,23 @@ dialog::backdrop {
 	tab-size: 4;
 }
 
+/* ---- 網站健檢結果 (doctor) --------------------------------------------- */
+
+.doctor-result {
+	margin: 0.75rem 0 0;
+	padding: 0.75rem 1rem;
+	background: var(--surface);
+	color: var(--text);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	box-shadow: var(--shadow);
+	font-family: ui-monospace, "Cascadia Code", "Consolas", Menlo, monospace;
+	font-size: 0.82rem;
+	line-height: 1.6;
+	white-space: pre-wrap;
+	word-break: break-all;
+}
+
 /* ---- 懸浮說明 tooltip (data-tip) --------------------------------------- */
 
 [data-tip] {

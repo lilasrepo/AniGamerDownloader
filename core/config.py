@@ -475,6 +475,26 @@ def del_bom(path, display=True):
                 break
 
 
+# Remember which configured dirs we've already warned about, so the fallback
+# warning fires once per path per process. read_settings runs every scheduling
+# cycle, so an un-deduped warning would flood the log.
+_warned_dir_fallback = set()
+
+
+def __warn_dir_fallback(name, configured, fallback):
+    # A configured-but-missing download/temp dir is a silent-fallback trap,
+    # especially right after moving to a new PC (the drive/folder isn't there yet).
+    # Warn loudly ONCE. An empty configured value just means "not customized" — no
+    # warning. `name` doubles as the dedup key.
+    if not configured or name in _warned_dir_fallback:
+        return
+    _warned_dir_fallback.add(name)
+    __color_print(0, 'config.json 指定的 ' + name + ' 不存在: ' + str(configured)
+                  + ' — 已暫時改用 ' + str(fallback)
+                  + '。若剛搬遷到新電腦，請建立原資料夾，或到「設定」分頁修改下載/暫存目錄。',
+                  status=1, no_sn=True)
+
+
 def read_settings(config=''):
     if config == '':
         if not os.path.exists(config_path):
@@ -519,7 +539,9 @@ def read_settings(config=''):
         # normalize the anime path
         settings['bangumi_dir'] = os.path.abspath(settings['bangumi_dir'])
     else:
-        # if the user did not customize the anime directory or it does not exist, store in the local bangumi directory
+        # not customized -> local bangumi dir; customized-but-missing -> warn loudly
+        __warn_dir_fallback('bangumi_dir', settings['bangumi_dir'],
+                            os.path.join(data_dir, 'bangumi'))
         settings['bangumi_dir'] = os.path.join(data_dir, 'bangumi')
 
     # if the user customized the temp directory and it exists
@@ -527,7 +549,9 @@ def read_settings(config=''):
         # normalize the temp path
         settings['temp_dir'] = os.path.abspath(settings['temp_dir'])
     else:
-        # if the user did not customize the temp directory or it does not exist, store in the local temp directory
+        # not customized -> local temp dir; customized-but-missing -> warn loudly
+        __warn_dir_fallback('temp_dir', settings['temp_dir'],
+                            os.path.join(data_dir, 'temp'))
         settings['temp_dir'] = os.path.join(data_dir, 'temp')
 
     settings['working_dir'] = working_dir
@@ -650,7 +674,7 @@ def time_stamp_to_time(timestamp):
 
 
 def read_latest_version_on_github():
-    req = 'https://api.github.com/repos/miyouzi/aniGamerPlus/releases/latest'
+    req = 'https://api.github.com/repos/lilasrepo/AniGamerDownloader/releases/latest'
     session = requests.session()
     remote_version = {}
     try:
@@ -667,7 +691,9 @@ def read_latest_version_on_github():
 
 def __remove_superfluous_logs(max_num):
     if os.path.exists(logs_dir):
-        logs_list = [x for x in os.listdir(logs_dir) if 'web' not in x]
+        # isfile filter: data/logs/ also holds the diag/ subdirectory of raw-response dumps
+        logs_list = [x for x in os.listdir(logs_dir)
+                     if 'web' not in x and os.path.isfile(os.path.join(logs_dir, x))]
         if len(logs_list) > max_num:
             logs_list.sort()
             logs_need_remove = logs_list[0:len(logs_list) - max_num]

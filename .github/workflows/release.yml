@@ -18,7 +18,28 @@ permissions:
   packages: write   # push the image to GHCR
 
 jobs:
+  # Guard against a mismatched release: the in-code version constant
+  # (core/config.py: AniGamerDownloader_version) MUST equal the pushed tag.
+  # The job itself always runs (fast: checkout + grep) so both build jobs can
+  # depend on it; the actual check step only fires on tag pushes, letting
+  # workflow_dispatch dry-runs pass straight through.
+  version-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify in-code version matches the release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          code_version=$(grep -oP "AniGamerDownloader_version\s*=\s*'\K[^']+" core/config.py)
+          echo "in-code version: $code_version / tag: $GITHUB_REF_NAME"
+          if [ "$code_version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::版本不一致：core/config.py 的 AniGamerDownloader_version 為 $code_version，但發佈標籤為 $GITHUB_REF_NAME。請先更新 core/config.py 的版本常數使其與標籤一致，再重新打標籤發佈。"
+            exit 1
+          fi
+          echo "版本一致：$code_version"
+
   windows-portable:
+    needs: version-guard
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,6 +89,7 @@ jobs:
           path: AniGamerDownloader-windows-portable-*.zip
 
   docker-image:
+    needs: version-guard
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

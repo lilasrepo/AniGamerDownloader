@@ -25,6 +25,9 @@ import json
 import sys
 import os
 import re
+import io
+import zipfile
+import sqlite3
 import threading
 import traceback
 import subprocess
@@ -34,7 +37,7 @@ import time
 from datetime import datetime
 
 from gevent import spawn
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask import render_template
 from flask_basicauth import BasicAuth
 import logging
@@ -421,6 +424,54 @@ def daemon_check_now():
     state.force_check_now = True
     err_print(0, 'Dashboard', '透過 Web 觸發立即檢查', no_sn=True, status=2)
     return jsonify({'status': 200})
+
+
+@app.route('/doctor', methods=['POST'])
+def doctor_route():
+    # On-demand site health check. Fires ONE real parse request to 動畫瘋 (same
+    # traffic as a manual lookup) — never scheduled. Works in app-only mode too
+    # (no daemon gate). The blocking network I/O yields under gevent, so the rest
+    # of the dashboard stays responsive while it runs.
+    body = request.get_json(silent=True) or {}
+    sn = body.get('sn')
+    if sn in ('', None):
+        sn = None
+    err_print(0, 'Dashboard', '透過 Web 觸發網站健檢', no_sn=True, status=2)
+    try:
+        result = daemon.doctor(sn)
+    except Exception as e:
+        result = {'sn': sn, 'ok': False, 'steps': [], 'first_broken': None,
+                  'diag': None, 'error': '健檢執行失敗：' + str(e)}
+    return jsonify(result)
+
+
+@app.route('/backup', methods=['GET'])
+def backup():
+    # One-click backup / new-PC migration: bundle the 4 irreplaceable state files
+    # into an in-memory zip. INCLUDES cookie.txt (an account secret) — the 設定
+    # tab warns about it. aniGamer.db is captured via sqlite serialize() so an
+    # in-flight daemon write can't hand back a torn copy.
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for path, arcname in ((Config.config_path, 'config.json'),
+                              (Config.cookie_path, 'cookie.txt'),
+                              (Config.sn_list_path, 'sn_list.txt')):
+            if os.path.isfile(path):
+                zf.write(path, arcname)
+        if os.path.isfile(daemon.db_path):
+            try:
+                con = sqlite3.connect(daemon.db_path)
+                try:
+                    zf.writestr('aniGamer.db', con.serialize())  # consistent snapshot
+                finally:
+                    con.close()
+            except Exception as e:
+                err_print(0, '備份', 'aniGamer.db 快照失敗: ' + str(e), no_sn=True, status=1)
+    buf.seek(0)
+    ts = datetime.now().strftime('%Y%m%d-%H%M%S')
+    err_print(0, 'Dashboard', '透過 Web 匯出備份 zip', no_sn=True, status=2)
+    return send_file(buf, mimetype='application/zip', as_attachment=True,
+                     download_name='AniGamerDownloader-backup-' + ts + '.zip')
 
 
 def _delayed_shutdown():

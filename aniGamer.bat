@@ -6,8 +6,22 @@ REM   child process. No browser tab, no console window (pythonw).
 REM - all controls live inside the window: Settings (incl. account Cookie) / Monitor / Download list /
 REM   Database / Manual tasks / Help. Closing the window stops the daemon child.
 REM - single-instance lock (daemon port 47763) prevents a second copy.
-REM - the old system-tray launcher is src\tray.py (kept for reference); dashboard.bat
-REM   and run-anime.bat are retired in archived/.
+REM - runs from the project .venv (Python 3.13). If .venv is missing (a fresh clone
+REM   or a new PC), it prints rebuild instructions (scripts\venv-missing.txt) instead
+REM   of failing silently. See docs\SETUP_GUIDE.md.
 chcp 65001 >nul
 set PYTHONUTF8=1
+
+REM Fail loudly with rebuild instructions when the venv is absent. The CJK message
+REM lives in an external UTF-8 file shown via `type` — cmd's batch parser mangles
+REM inline multibyte text, but `type` renders it correctly under chcp 65001.
+if not exist "%~dp0.venv\Scripts\pythonw.exe" goto no_venv
+
 start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0shells\desktop.py"
+goto :eof
+
+:no_venv
+type "%~dp0scripts\venv-missing.txt"
+echo.
+pause
+exit /b 1

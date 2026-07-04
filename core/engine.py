@@ -31,6 +31,7 @@ unit-test contract while still mutating ``self.video_size`` /
 """
 
 import ftplib
+import json
 import shutil
 import traceback
 import pyhttpx
@@ -42,7 +43,7 @@ import threading
 from urllib.parse import quote
 
 from core.danmu import Danmu
-from core.logging import err_print as _default_err_print
+from core.logging import err_print as _default_err_print, dump_diag
 from core.types import DownloadResult, ProgressEvent
 from core import config as _config
 
@@ -187,8 +188,10 @@ class AnimeDownloader:
         if self._settings['use_mobile_api']:
             try:
                 self._title = self._src['data']['anime']['title']
-            except KeyError:
-                self._log(self._sn, 'ERROR: 該 sn 下真的有動畫？', status=1)
+            except (KeyError, TypeError):
+                diag_path = dump_diag('title-parse', json.dumps(self._src, ensure_ascii=False))
+                self._log(self._sn, 'ERROR: 找不到影片標題',
+                          '該 sn 可能不存在, 或動畫瘋 API 改版. 原始回應已存: ' + (diag_path or '(寫入失敗)'), status=1)
                 self._episode_list = {}
                 sys.exit(1)
         else:
@@ -196,8 +199,9 @@ class AnimeDownloader:
             try:
                 self._title = soup.find('div', 'anime_name').h1.string  # extract title (contains episode number)
             except (TypeError, AttributeError):
-                # no anime under this sn
-                self._log(self._sn, 'ERROR: 該 sn 下真的有動畫？', status=1)
+                diag_path = dump_diag('title-parse', str(self._src))
+                self._log(self._sn, 'ERROR: 找不到影片標題',
+                          '該 sn 可能不存在, 或動畫瘋網頁改版. 原始回應已存: ' + (diag_path or '(寫入失敗)'), status=1)
                 self._episode_list = {}
                 sys.exit(1)
 
@@ -273,6 +277,8 @@ class AnimeDownloader:
                     self._episode_list[ep] = sn
             except AttributeError:
                 # when there is only one episode, no episode list exists; self._episode_list holds only itself
+                self._log(self._sn, '集數列表',
+                          '未找到集數列表, 以單集處理 (單集動畫屬正常; 若每部都如此則可能是網頁改版)', display=False)
                 self._episode_list[self._episode] = self._sn
 
     def __init_header(self):
@@ -424,7 +430,14 @@ class AnimeDownloader:
         # m3u8 fetch module adapted from https://github.com/c0re100/BahamutAnimeDownloader
         def get_device_id():
             req = 'https://ani.gamer.com.tw/ajax/getdeviceid.php'
-            self._device_id = self.__request_json(req)['deviceid']
+            resp = self.__request(req)  # same defaults as __request_json
+            try:
+                self._device_id = resp.json()['deviceid']
+            except (ValueError, KeyError, TypeError):
+                diag_path = dump_diag('getdeviceid', resp.text)
+                self._log(self._sn, 'ERROR: getdeviceid.php 回應中找不到 deviceid',
+                          'API 可能改版. 原始回應已存: ' + (diag_path or '(寫入失敗)'), status=1)
+                sys.exit(1)
             return self._device_id
 
         def get_playlist():
@@ -503,25 +516,42 @@ class AnimeDownloader:
                             self._settings['ads_time'] = ads_time
                         self._settings_writer(self._settings)  # save to the config file
             else:
-                self._log(self._sn, '遭到動畫瘋地區限制, 你的IP可能不被動畫瘋認可!', status=1)
+                diag_path = dump_diag('token-noad', json.dumps(resp, ensure_ascii=False))
+                self._log(self._sn, '廣告檢查異常',
+                          'token.php 回應中沒有 time 欄位 — 可能是地區限制(IP不被動畫瘋認可), '
+                          '也可能是網站 API 改版. 原始回應已存: ' + (diag_path or '(寫入失敗)'), status=1)
                 sys.exit(1)
 
         def parse_playlist():
             playlist_url = ""
-            if self._settings['use_mobile_api']:
-                playlist_url = self._playlist['data']['src']
-            else:
-                playlist_url = self._playlist['src']
+            try:
+                if self._settings['use_mobile_api']:
+                    playlist_url = self._playlist['data']['src']
+                else:
+                    playlist_url = self._playlist['src']
+            except (KeyError, TypeError):
+                diag_path = dump_diag('m3u8-json', json.dumps(self._playlist, ensure_ascii=False))
+                self._log(self._sn, 'ERROR: m3u8.php 回應中找不到 src',
+                          'API 可能改版或回傳錯誤. 原始回應已存: ' + (diag_path or '(寫入失敗)'), status=1)
+                sys.exit(1)
             f = self.__request(playlist_url, no_cookies=True, addition_header={'origin': 'https://ani.gamer.com.tw'})
             url_prefix = re.sub(r'playlist.+', '', playlist_url)  # m3u8 URL prefix
             m3u8_list = re.findall(r'=\d+x\d+\n.+', f.content.decode())  # extract lines containing the resolution and m3u8 file
             m3u8_dict = {}
-            for i in m3u8_list:
-                key = re.findall(r'=\d+x\d+', i)[0]  # extract resolution
-                key = re.findall(r'x\d+', key)[0][1:]  # extract the vertical pixel count, used as the key
-                value = re.findall(r'.*chunklist.+', i)[0]  # extract the m3u8 file
-                value = url_prefix + value  # assemble the full m3u8 URL
-                m3u8_dict[key] = value
+            try:
+                for i in m3u8_list:
+                    key = re.findall(r'=\d+x\d+', i)[0]  # extract resolution
+                    key = re.findall(r'x\d+', key)[0][1:]  # extract the vertical pixel count, used as the key
+                    value = re.findall(r'.*chunklist.+', i)[0]  # extract the m3u8 file
+                    value = url_prefix + value  # assemble the full m3u8 URL
+                    m3u8_dict[key] = value
+            except IndexError:
+                m3u8_dict = {}  # inner-line format changed; report below with the raw playlist
+            if not m3u8_dict:
+                diag_path = dump_diag('playlist', f.content)
+                self._log(self._sn, 'ERROR: master playlist 解析不到任何畫質',
+                          '播放清單格式可能改變. 原始回應已存: ' + (diag_path or '(寫入失敗)'), status=1)
+                sys.exit(1)
             self._m3u8_dict = m3u8_dict
 
         get_device_id()
@@ -538,6 +568,12 @@ class AnimeDownloader:
             msg = '《' + self._title + '》 '
             msg = msg + 'code=' + str(user_info['error']['code']) + ' message: ' + user_info['error']['message']
             self._log(self._sn, '收到錯誤', msg, status=1)
+            sys.exit(1)
+
+        if 'vip' not in user_info:
+            diag_path = dump_diag('token', json.dumps(user_info, ensure_ascii=False))
+            self._log(self._sn, 'ERROR: token.php 回應中找不到 vip 欄位',
+                      'API 可能改版. 原始回應已存: ' + (diag_path or '(寫入失敗)'), status=1)
             sys.exit(1)
 
         if not user_info['vip']:
@@ -692,7 +728,13 @@ class AnimeDownloader:
         with open(m3u8_path, 'w', encoding='utf-8') as f:  # save the m3u8 file locally
             f.write(m3u8_text)
             pass
-        key_uri = re.search(r'(?<=AES-128,URI=")(.*)(?=")', m3u8_text).group()  # extract the key URL
+        key_match = re.search(r'(?<=AES-128,URI=")(.*)(?=")', m3u8_text)  # extract the key URL
+        if key_match is None:
+            diag_path = dump_diag('chunklist-aeskey', m3u8_text)
+            self._log(self._sn, 'ERROR: chunklist 找不到 AES-128 金鑰 URI',
+                      '加密方式可能改變. 原始回應已存: ' + (diag_path or '(寫入失敗)'), status=1)
+            sys.exit(1)
+        key_uri = key_match.group()
         original_key_uri = key_uri
 
         if not re.match(r'http.+', key_uri):

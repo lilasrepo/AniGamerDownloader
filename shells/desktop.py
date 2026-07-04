@@ -271,6 +271,9 @@ def main():
 
     _ensure_webview2_runtime()  # install the WebView2 runtime on a clean machine
     webview = _import_webview()
+    # pywebview 5.x blocks downloads by default; turn it on so the 設定 tab's
+    # 備份資料 (zip) link actually saves a file inside the desktop window.
+    webview.settings['ALLOW_DOWNLOADS'] = True
     url = 'http://%s:%d' % (host, port)
     window = webview.create_window('AniGamerDownloader', url,
                                    width=1180, height=820, min_size=(900, 600))

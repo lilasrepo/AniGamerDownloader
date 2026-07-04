@@ -74,6 +74,19 @@ python -m venv .venv
 
 ---
 
+## 更新
+
+三種使用方式各自的更新方式；**你的狀態全在 `data/`**（設定／cookie／清單／下載紀錄），更新程式不會動到它：
+
+- **Windows 可攜桌面 App**：從 [Releases](../../releases) 下載新版 zip、整夾解壓到新資料夾，再把舊的整個 `data\` 覆蓋過去即可。
+- **Docker**：`docker pull ghcr.io/lilasrepo/anigamerdownloader:latest` 後重建容器；掛載的 `/app/data` volume 原封不動。
+- **原始碼**：`git pull` → `pip install -r requirements-venv.txt -r shells\requirements-desktop.txt` → 重新啟動。
+
+啟動時若 GitHub 有新版，控制台日誌會提示（僅通知，不自動更新）。換新電腦的完整步驟見 [docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md)。
+搬遷可用「設定」分頁的**備份資料 (zip)**（含 cookie，請妥善保管）一次帶走 4 個狀態檔。
+
+---
+
 ## 注意事項
 
 - **Cookie 即帳號**：貼上登入後的 `Cookie:` 標頭，並填入**產生該 cookie 的同一瀏覽器 UA**。

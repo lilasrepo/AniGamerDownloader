@@ -49,7 +49,7 @@ from core.engine import AnimeDownloader, TryTooManyTimeError
 from core.cookies import CookieStore
 from core.danmu import Danmu
 from core.types import Paths
-from core.logging import err_print
+from core.logging import err_print, get_last_diag, reset_last_diag
 from core import db as _db
 from app.state import AppState
 
@@ -157,6 +157,104 @@ def build_anime(sn):
         time.sleep(settings['parse_sn_cd'])
 
     return anime
+
+
+def doctor(sn=None):
+    """On-demand site health check — the front line of self-repair.
+
+    Runs ONE real parse chain against 動畫瘋 (exactly the traffic of a single
+    manual lookup) and reports which step, if any, broke. It deliberately reuses
+    ``build_anime()`` + ``get_m3u8_dict()`` so the real header / CookieStore /
+    one-shot cookie-refresh contract is exercised — a hand-rolled request could
+    silently consume a BAHARUNE refresh without persisting it, which is the actual
+    account-ban risk.
+
+    NOT scheduled or polled anywhere: extra automated traffic to the site is a ban
+    risk. Trigger it manually via the CLI (``--doctor``) or the 監控 dashboard
+    button only.
+
+    Returns a dict::
+
+        {'sn': int|None, 'ok': bool,
+         'steps': [{'name': str, 'ok': bool, 'detail': str}, ...],
+         'first_broken': str|None,   # the diag step name, e.g. 'token'
+         'diag': str|None,           # path to the raw-response dump
+         'error': str}               # only present on setup errors (empty sn_list)
+
+    ``first_broken`` / ``diag`` come from :func:`core.logging.get_last_diag` — the
+    raw dump the engine saved at the boundary that failed. Cross-reference the step
+    name in docs/SITE_API.md to find the endpoint to repair.
+    """
+    if sn is None:
+        sn_dict = Config.read_sn_list()
+        if not sn_dict:
+            return {'sn': None, 'ok': False, 'steps': [], 'first_broken': None,
+                    'diag': None, 'error': 'sn_list.txt 是空的，請指定一個 sn 進行健檢'}
+        sn = next(iter(sn_dict))  # first entry in the file (dict preserves order)
+    try:
+        sn = int(sn)
+    except (TypeError, ValueError):
+        return {'sn': sn, 'ok': False, 'steps': [], 'first_broken': None,
+                'diag': None, 'error': 'sn 必須是數字'}
+
+    err_print(sn, '網站健檢', '開始健檢（將對動畫瘋發出一次真實解析請求）', no_sn=False, status=0)
+    steps = []
+
+    # Step 1: parse the anime page (title / episode list) by building the engine.
+    # build_anime already swallows the engine's sys.exit / exceptions into
+    # anime['failed']; a broken selector leaves a 'title-parse' dump behind.
+    reset_last_diag()
+    anime = build_anime(sn)
+    if anime['failed'] or anime['anime'] is None:
+        last = get_last_diag()
+        broken, diag = last if last else (None, None)
+        detail = ('影片資訊解析失敗，原始回應已存於：' + diag) if diag \
+            else '影片資訊抓取失敗（可能是網路問題、Cookie 失效，或該 sn 不存在）'
+        steps.append({'name': '解析影片頁面 (標題/集數)', 'ok': False, 'detail': detail})
+        return {'sn': sn, 'ok': False, 'steps': steps, 'first_broken': broken, 'diag': diag}
+    a = anime['anime']
+    steps.append({'name': '解析影片頁面 (標題/集數)', 'ok': True,
+                  'detail': '標題《' + a.get_title() + '》，共 ' + str(len(a.get_episode_list())) + ' 集'})
+
+    # Step 2: obtain the master playlist (deviceid -> token -> m3u8 -> resolutions).
+    # The engine reports parse failures via sys.exit(1) (SystemExit), so catch
+    # BaseException; re-raise KeyboardInterrupt so Ctrl+C still works from the CLI.
+    reset_last_diag()
+    try:
+        m3u8_dict = a.get_m3u8_dict()
+        resolutions = sorted(m3u8_dict.keys(), key=lambda x: int(x), reverse=True)
+        steps.append({'name': '取得播放清單 (deviceid/token/m3u8)', 'ok': True,
+                      'detail': '可用畫質：' + ', '.join(r + 'P' for r in resolutions)})
+        return {'sn': sn, 'ok': True, 'steps': steps, 'first_broken': None, 'diag': None}
+    except KeyboardInterrupt:
+        raise
+    except BaseException:
+        last = get_last_diag()
+        broken, diag = last if last else (None, None)
+        detail = ('解析中斷於「' + broken + '」，原始回應已存於：' + diag) if diag \
+            else '播放清單解析失敗（可能是網路問題、帳號權限或地區限制）'
+        steps.append({'name': '取得播放清單 (deviceid/token/m3u8)', 'ok': False, 'detail': detail})
+        return {'sn': sn, 'ok': False, 'steps': steps, 'first_broken': broken, 'diag': diag}
+
+
+def _print_doctor_result(result):
+    # Human-readable console rendering of doctor()'s dict, for the --doctor CLI path.
+    print()
+    print('=== 網站健檢 sn=' + str(result.get('sn')) + ' ===')
+    if result.get('error'):
+        print('  ! ' + result['error'])
+    for step in result.get('steps', []):
+        mark = '✓' if step['ok'] else '✗'
+        print('  ' + mark + ' ' + step['name'] + ' — ' + step['detail'])
+    if result.get('ok'):
+        print('結果：正常，各步驟皆通過。')
+    else:
+        print('結果：異常。')
+        if result.get('first_broken'):
+            print('  中斷步驟代碼：' + result['first_broken'] + '（對照 docs/SITE_API.md 找對應端點）')
+        if result.get('diag'):
+            print('  原始回應：' + result['diag'])
+    print()
 
 
 # ---------------------------------------------------------------------------
@@ -966,11 +1064,19 @@ def cli_main(argv=None):
         parser.add_argument('--information_only', '-i', action='store_true', help='僅查詢資訊，可搭配 -d 更新彈幕')
         parser.add_argument('--danmu', '-d', action='store_true', help='以 .ass 下載彈幕')
         parser.add_argument('--my_anime', action='store_true', help='匯出「我的動畫」至my_anime.txt')
+        parser.add_argument('--doctor', nargs='?', type=int, const=-1, default=None,
+                            help='網站健檢：對動畫瘋發出一次真實解析請求，檢查各步驟是否正常（可選 sn，預設用 sn_list 第一筆）')
         arg = parser.parse_args(argv)
 
         if arg.my_anime:
             export_my_anime()
             sys.exit(0)
+
+        if arg.doctor is not None:
+            # --doctor alone -> const -1 (use default sn); --doctor <sn> -> that sn
+            result = doctor(None if arg.doctor == -1 else arg.doctor)
+            _print_doctor_result(result)
+            sys.exit(0 if result['ok'] else 1)
 
         if (arg.download_mode not in ('list', 'multi', 'sn-list', 'db')) and arg.sn is None:
             err_print(0, '參數錯誤', '非 list/multi 模式需要提供 sn ', no_sn=True, status=1)

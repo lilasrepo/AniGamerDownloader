@@ -141,7 +141,6 @@ data/temp/
 data/bangumi/
 
 # transient local backups
-archived/backups/
 data/*.bak*
 
 # WebView2 bootstrapper blob (build_desktop.bat re-downloads it on demand)
@@ -152,12 +151,6 @@ shells/webview2/*.exe
 # demand under data/sslkey/ the first time the dashboard's SSL option is enabled.
 web/sslkey/
 data/sslkey/
-# Retired vendor/pre-restructure files — local reference only, not part of the app.
-archived/
-# Legacy compat shims (re-export from core/app). The exe / aniGamer.bat / Docker
-# launchers all run core+app directly and never load src/ — kept locally only as
-# reference, excluded from the public repo (slated for deletion at project end).
-src/
 # Claude Code workspace config + project instructions — dev tooling, not shipped.
 .claude/
 CLAUDE.md

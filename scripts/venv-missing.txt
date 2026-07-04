@@ -1,0 +1,11 @@
+
+[AniGamerDownloader] 找不到虛擬環境 .venv，無法啟動。
+
+這通常表示剛從 GitHub 複製專案、或搬到新電腦後，尚未建立執行環境。
+請在專案根目錄（此 .bat 所在資料夾）依序執行（需要 Python 3.13）：
+
+    python -m venv .venv
+    .venv\Scripts\python -m pip install -r requirements-venv.txt
+    .venv\Scripts\python -m pip install -r shells\requirements-desktop.txt
+
+完整步驟請見 docs\SETUP_GUIDE.md。

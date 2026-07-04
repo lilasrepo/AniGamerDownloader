@@ -211,6 +211,8 @@
 				<div class="actions">
 					<button id="saveBtn" type="button" class="btn btn-primary">儲存</button>
 					<button id="reloadBtn" type="button" class="btn btn-danger">重載配置</button>
+						<a class="btn btn-dark" href="/backup" download data-tip="下載一份包含 config.json、cookie.txt、sn_list.txt 與下載紀錄資料庫的 zip，可在換電腦時還原。內含帳號 cookie（機密），請妥善保管。">備份資料 (zip)</a>
+						<p style="flex-basis:100%;width:100%;color:var(--text-muted);font-size:0.85rem;margin:0.4rem 0 0">備份含帳號 cookie（機密），請妥善保管、勿外流；可用於換電腦時還原設定、清單與下載紀錄。</p>
 				</div>
 			</section>
 
@@ -226,10 +228,13 @@
 							data-tip="立即掃描一次下載清單 (sn_list)，跳過剩餘的等待時間，馬上檢查有沒有新集數要下載。">立即檢查</button>
 						<button id="batchToggleBtn" type="button" class="btn btn-secondary" disabled
 							data-tip="暫停：停止排入新的下載任務（已經在下載的會繼續跑完）。繼續：恢復自動排程。只影響「要不要找新任務」，不會中斷進行中的下載。">—</button>
+						<button id="doctorBtn" type="button" class="btn btn-secondary"
+							data-tip="網站健檢：對動畫瘋發出一次真實解析請求，逐步檢查「頁面解析 → deviceid → token → 播放清單」是否正常。網站改版導致下載失敗時，用來定位是哪一步壞掉。不會自動排程，只在你按下時執行一次。">網站健檢</button>
 						<button id="shutdownBtn" type="button" class="btn btn-danger" disabled
 							data-tip="完全結束 AniGamerDownloader 程式本身（含背景自動下載與此控制臺）。進行中的下載會中斷，需重新執行 aniGamer.bat（系統匣）才能再使用。">停止程式</button>
 					</div>
 				</div>
+				<pre id="doctorResult" class="doctor-result" style="display:none"></pre>
 				<div class="task-card" id="no_task">
 					<div class="task-card-header" style="text-align:center">【當前無任務】</div>
 					<div class="task-card-body" style="text-align:center">當前沒有正在下載的任務</div>
