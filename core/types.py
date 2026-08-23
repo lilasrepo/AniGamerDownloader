@@ -42,6 +42,15 @@ class DownloadResult:
     resolution: int
     ok: bool
     error: Optional[str] = None
+    # True when this episode can NEVER succeed under the current settings (e.g.
+    # the site simply does not offer a resolution at or above min_resolution).
+    # Callers must treat it as terminal: mark it skipped rather than retrying,
+    # and do NOT count it toward the consecutive-failure backoff -- it says
+    # nothing about the site's health.
+    permanent: bool = False
+    # Highest resolution the site actually offered, so the caller can record the
+    # real ceiling instead of a bare 0.
+    available: int = 0
 
 
 @dataclass

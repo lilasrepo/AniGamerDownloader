@@ -58,6 +58,38 @@ def _noop_progress(sn, event):
     pass
 
 
+def choose_resolution(available, wanted, floor=0, lock=True):
+    """Pick which resolution to actually download.
+
+    Pure function so it can be unit-tested without a network or an engine
+    instance -- the selection rule is the part with real edge cases.
+
+    ``available``: iterable of int resolutions the site offered.
+    ``wanted``: the configured ``download_resolution``.
+    ``floor``: ``min_resolution``; 0 = no floor. Only consulted when ``lock``.
+    ``lock``: the ``lock_resolution`` setting.
+
+    Returns ``(chosen, permanent)``. ``chosen`` is None exactly when
+    ``permanent`` is True, meaning nothing on offer clears the floor and
+    retrying cannot help.
+    """
+    available = sorted({int(r) for r in available}, reverse=True)
+    wanted = int(wanted)
+    if not available:
+        return None, True
+    if wanted in available:
+        return wanted, False
+    if not lock:
+        # historical behaviour: nearest available, no floor
+        return min(available, key=lambda r: abs(wanted - r)), False
+    floor = int(floor or 0)
+    usable = [r for r in available if r >= floor]
+    if not usable:
+        return None, True
+    at_or_below = [r for r in usable if r <= wanted]
+    return (max(at_or_below) if at_or_below else min(usable)), False
+
+
 def _random_string(num):
     chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
     random.seed(int(round(time.time() * 1000)))
@@ -531,8 +563,25 @@ class AnimeDownloader:
             if self._settings['use_mobile_api']:
                 req = f'https://api.gamer.com.tw/mobile_app/anime/v3/m3u8.php?videoSn={str(self._sn)}&device={self._device_id}'
             else:
-                req = 'https://ani.gamer.com.tw/ajax/m3u8.php?sn=' + str(self._sn) + '&device=' + self._device_id
-            self._playlist = self.__request_json(req)
+                # 2026-08-23 site change: ani.gamer.com.tw/ajax/m3u8.php was REMOVED -- it now
+                # answers HTTP 404 "File not found." for every request, parameters or not.
+                # The web player calls anime/v1/video_src.php instead: sn -> videoSn,
+                # device -> deviceid, plus a deviceTypeUseCases selector. See docs/SITE_API.md.
+                req = ('https://api.gamer.com.tw/anime/v1/video_src.php?videoSn=' + str(self._sn)
+                       + '&deviceid=' + self._device_id + '&deviceTypeUseCases=1')
+            # Parse here instead of through __request_json: a non-JSON body raises inside
+            # requests' .json(), which happens BEFORE parse_playlist's dump_diag guard -- so when
+            # this endpoint 404'd, the failure produced a bare traceback and data/logs/diag/ stayed
+            # empty, which is exactly when the raw response is most needed.
+            resp = self.__request(req)
+            try:
+                self._playlist = resp.json()
+            except ValueError:
+                diag_path = dump_diag('m3u8-json', resp.text)
+                self._log(self._sn,
+                          'ERROR: 取得播放清單的 API 未回傳 JSON (HTTP ' + str(resp.status_code) + ')',
+                          '端點可能已被移除或改版. 原始回應已存: ' + (diag_path or '(寫入失敗)'), status=1)
+                sys.exit(1)
 
         def unlock():
             req = 'https://ani.gamer.com.tw/ajax/unlock.php?sn=' + str(self._sn) + "&ttl=0"
@@ -598,10 +647,15 @@ class AnimeDownloader:
                 if self._settings['use_mobile_api']:
                     playlist_url = self._playlist['data']['src']
                 else:
-                    playlist_url = self._playlist['src']
-            except (KeyError, TypeError):
+                    # video_src.php returns one source entry per device type; deviceType 1 is
+                    # what deviceTypeUseCases=1 asked for. Fall back to the first entry so a
+                    # renamed/renumbered type degrades instead of failing outright.
+                    cases = self._playlist['data']['srcUseCases']
+                    case = next((c for c in cases if c.get('deviceType') == 1), cases[0])
+                    playlist_url = case['src']['playlist']
+            except (KeyError, TypeError, IndexError):
                 diag_path = dump_diag('m3u8-json', json.dumps(self._playlist, ensure_ascii=False))
-                self._log(self._sn, 'ERROR: m3u8.php 回應中找不到 src',
+                self._log(self._sn, 'ERROR: 播放清單 API 回應中找不到 src',
                           'API 可能改版或回傳錯誤. 原始回應已存: ' + (diag_path or '(寫入失敗)'), status=1)
                 sys.exit(1)
             f = self.__request(playlist_url, no_cookies=True, addition_header={'origin': 'https://ani.gamer.com.tw'})
@@ -1117,27 +1171,35 @@ class AnimeDownloader:
             except FileExistsError as e:
                 self._log(self._sn, '下載狀態', '欲建立的臨時資料夾已存在 ' + str(e), display=False)
 
-        # if the specified resolution does not exist, pick the closest available resolution
+        # The requested resolution is not on offer. Two different situations:
+        #   * the title simply was never mastered that high (a 2004 series tops out
+        #     at 720P) -> take the best on offer, provided it clears min_resolution;
+        #   * the SESSION is degraded (expired cookie -> guest) -> only ~360P shows
+        #     up, and silently archiving that while marking the row complete is the
+        #     failure mode lock_resolution exists to prevent.
+        # min_resolution is the line between them.
         if resolution not in self._m3u8_dict.keys():
-            if self._settings['lock_resolution']:
-                # if the user has set resolution lock, cancel the download
-                err_msg_detail = '指定畫質不存在, 因當前鎖定了畫質, 下載取消. 可用的畫質: ' + 'P '.join(self._m3u8_dict.keys()) + 'P'
-                self._log(self._sn, '任務狀態', err_msg_detail, status=1)
-                return DownloadResult(path='', size=0, resolution=0, ok=False, error='指定畫質不存在且鎖定畫質')
+            available = sorted((int(r) for r in self._m3u8_dict.keys()), reverse=True)
+            offered = 'P '.join(str(r) for r in available) + 'P' if available else '(無)'
+            wanted = int(resolution)
+            lock = self._settings['lock_resolution']
+            floor = int(self._settings.get('min_resolution') or 0)
 
-            resolution_list = map(lambda x: int(x), self._m3u8_dict.keys())
-            resolution_list = list(resolution_list)
-            flag = 9999
-            closest_resolution = 0
-            for i in resolution_list:
-                a = abs(int(resolution) - i)
-                if a < flag:
-                    flag = a
-                    closest_resolution = i
-            # resolution_list.sort()
-            # resolution = str(resolution_list[-1])  # pick the highest available resolution
-            resolution = str(closest_resolution)
-            err_msg_detail = '指定畫質不存在, 選取最近可用畫質: ' + resolution + 'P'
+            chosen, permanent = choose_resolution(available, wanted, floor, lock)
+            if permanent:
+                # Terminal under the current settings: retrying cannot change it.
+                err_msg_detail = ('可用畫質全部低於下限 ' + str(floor) + 'P, 下載取消. 可用的畫質: '
+                                  + offered + '. 若此作品本來就只有這些畫質, 請調低「最低可接受畫質」;'
+                                  + ' 若平常有更高畫質, 請先確認 cookie 是否失效 (遊客只看得到低畫質)')
+                self._log(self._sn, '任務狀態', err_msg_detail, status=1)
+                return DownloadResult(path='', size=0, resolution=0, ok=False,
+                                      error='可用畫質低於下限 ' + str(floor) + 'P',
+                                      permanent=True,
+                                      available=available[0] if available else 0)
+
+            resolution = str(chosen)
+            err_msg_detail = ('指定畫質 ' + str(wanted) + 'P 不存在, 改用 ' + resolution
+                              + 'P. 可用的畫質: ' + offered)
             self._log(self._sn, '任務狀態', err_msg_detail, status=1)
         self.video_resolution = int(resolution)
 

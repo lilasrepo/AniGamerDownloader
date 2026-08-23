@@ -316,6 +316,11 @@ def _episode_state(r):
             state_ = 'suspect'  # size quick-filter suspicious, needs ffprobe re-verification
         else:
             state_ = 'ok'
+    elif r['status'] == 2:
+        # Terminal skip (see core.db.STATUS_SKIPPED): the site never offered a
+        # resolution at or above min_resolution. Keep showing 'ok' if a file is
+        # somehow there from an earlier settings regime.
+        state_ = 'ok' if exists else 'skipped'
     else:
         state_ = 'ok' if exists else 'not_downloaded'
 
@@ -343,7 +348,7 @@ def db_inventory():
     result = []
     for name in sorted(series.keys()):
         eps = sorted(series[name], key=_episode_sort_key)
-        counts = {'ok': 0, 'missing': 0, 'suspect': 0, 'not_downloaded': 0}
+        counts = {'ok': 0, 'missing': 0, 'suspect': 0, 'not_downloaded': 0, 'skipped': 0}
         for e in eps:
             counts[e['state']] = counts.get(e['state'], 0) + 1
         result.append({'anime_name': name, 'episodes': eps, 'counts': counts})
@@ -401,30 +406,44 @@ def db_redownload():
 
 @app.route('/batch/status', methods=['GET'])
 def batch_status():
-    # Report the batch-download pause state, plus whether the daemon is running (pause has no effect in app-only mode)
-    return jsonify({'paused': state.batch_download_paused, 'daemon': state.daemon_running})
+    # Report the batch-download pause state (and WHY it is paused), plus whether
+    # the daemon is running (pause has no effect in app-only mode).
+    return jsonify({'paused': state.batch_download_paused,
+                    'daemon': state.daemon_running,
+                    'reason': state.pause_reason,
+                    'failures': state.consecutive_failures,
+                    'last_failure': state.last_failure})
 
 
 @app.route('/batch/pause', methods=['POST'])
 def batch_pause():
     state.batch_download_paused = True
+    state.pause_reason = 'user'
     err_print(0, 'Dashboard', '透過 Web 暫停了批次下載', no_sn=True, status=2)
     return jsonify({'status': 200, 'paused': True})
 
 
 @app.route('/batch/resume', methods=['POST'])
 def batch_resume():
-    state.batch_download_paused = False
+    # Also clears the failure streak: resuming is the operator saying "I looked
+    # at it", so the auto-pause guard gets a full budget again.
+    state.clear_pause()
     err_print(0, 'Dashboard', '透過 Web 恢復了批次下載', no_sn=True, status=2)
     return jsonify({'status': 200, 'paused': False})
 
 
 @app.route('/daemon/check_now', methods=['POST'])
 def daemon_check_now():
-    # Check now: make the daemon skip the remaining cooldown and scan sn_list once immediately
+    # Check now: make the daemon skip the remaining cooldown and scan sn_list once
+    # immediately. This is an explicit "go online now", so it also lifts a pause --
+    # otherwise the daemon would wake up, see the flag and skip, doing nothing.
+    resumed = state.batch_download_paused
+    if resumed:
+        state.clear_pause()
     state.force_check_now = True
-    err_print(0, 'Dashboard', '透過 Web 觸發立即檢查', no_sn=True, status=2)
-    return jsonify({'status': 200})
+    err_print(0, 'Dashboard',
+              '透過 Web 觸發立即檢查' + ('（同時解除暫停）' if resumed else ''), no_sn=True, status=2)
+    return jsonify({'status': 200, 'resumed': resumed})
 
 
 @app.route('/doctor', methods=['POST'])

@@ -25,7 +25,7 @@ ajax/token.php?adID=0       取得帳號資訊，判斷是否 VIP
         ├─（非 VIP）ajax/videoCastcishu.php?s=194699   看廣告 → 等待 ad_time 秒 → &ad=end 跳過
         │            └─ ajax/token.php（迴圈檢查 time==1，確認廣告已看完）
         ▼
-ajax/m3u8.php?sn=&device=   取得 master playlist 的網址（回傳 JSON 的 src 欄位）
+anime/v1/video_src.php     取得 master playlist 的網址（data.srcUseCases[].src.playlist）
         │
         ▼
 master playlist (.m3u8)     列出各畫質對應的 chunklist 網址 → 解析成 {畫質: 網址}
@@ -83,12 +83,29 @@ APP（mobile）模式走的是 `api.gamer.com.tw/mobile_app/anime/*`，端點不
   VIP 帳號通常不會走到這一步（VIP 直接下載）。
 
 ### 2.5 取得播放清單網址 → `m3u8-json`
-- **端點（Web）**：`GET https://ani.gamer.com.tw/ajax/m3u8.php?sn=<sn>&device=<deviceid>`
+- **端點（Web）**：`GET https://api.gamer.com.tw/anime/v1/video_src.php?videoSn=<sn>&deviceid=<deviceid>&deviceTypeUseCases=1`
 - **端點（APP）**：`GET https://api.gamer.com.tw/mobile_app/anime/v3/m3u8.php?videoSn=<sn>&device=<deviceid>`
-- **請求位置**：`get_playlist`（約 443）
-- **回應應有的樣子**：Web JSON `{"src": "<master playlist 網址>"}`；APP JSON `data.src`。
-- **解析位置**：`parse_playlist`（約 525）
-- **壞掉症狀**：log「m3u8.php 回應中找不到 src」，傾印 `m3u8-json`。代表這支 API 改版或回傳錯誤。
+- **請求位置**：`get_playlist`
+- **回應應有的樣子**：
+  - Web JSON：`{"data":{"deviceid":"...","srcUseCases":[{"deviceType":1,"src":{"playlist":"<master playlist 網址>"}}]}}`
+    取 `deviceType == 1` 那一筆的 `src.playlist`（找不到就退回第一筆）。
+  - APP JSON：`data.src`。
+- **解析位置**：`parse_playlist`
+- **壞掉症狀**：log「播放清單 API 回應中找不到 src」，傾印 `m3u8-json`。代表回應結構改版。
+  若 log 是「取得播放清單的 API 未回傳 JSON (HTTP xxx)」，代表**端點本身消失或被擋**，
+  傾印檔會是原始 HTML —— 先看 HTTP 狀態碼。
+
+> **2026-08-23 改版紀錄。** 舊的 Web 端點 `ani.gamer.com.tw/ajax/m3u8.php` **已被移除**，
+> 對任何請求（含不帶參數）一律回 `404 File not found.`。網頁播放器改呼叫
+> `api.gamer.com.tw/anime/v1/video_src.php`，三處都變了：
+> `sn` → `videoSn`、`device` → `deviceid`、新增 `deviceTypeUseCases=1`，
+> 回應也從扁平的 `{"src": ...}` 變成 `data.srcUseCases[]` 陣列。
+> 症狀是每一集都在 `識別到VIP賬戶` 之後立刻 `JSONDecodeError`。
+> 當時 `data/logs/diag/` 是**空的** —— 因為 `dump_diag` 只在「解析後找不到 src」時觸發，
+> 而 404 的 HTML 在 `.json()` 就先拋例外了。現已改成在 `get_playlist` 內解析 JSON 並
+> 於失敗時傾印，所以下次端點消失會留下原始回應。
+> 注意 master playlist 網址本身仍是 `playlist_advance.m3u8?hdnts=...`（query string 形式）；
+> 路徑片段形式的 `hdntl=.../` 只出現在**分段檔**網址裡，不影響 `url_prefix` 的組法。
 
 ### 2.6 解析 master playlist（各畫質）→ `playlist`
 - **端點**：上一步 `src` 指向的 `.m3u8`（帶 `origin: https://ani.gamer.com.tw` 標頭，不帶 cookie）
@@ -116,7 +133,7 @@ APP（mobile）模式走的是 `api.gamer.com.tw/mobile_app/anime/*`，端點不
 | 步驟 | Web | APP（mobile_app） |
 |---|---|---|
 | 影片頁面 | `animeVideo.php`（HTML） | `mobile_app/anime/v4/video.php`（JSON） |
-| 播放清單 | `ajax/m3u8.php` | `mobile_app/anime/v3/m3u8.php` |
+| 播放清單 | `anime/v1/video_src.php`（2026-08 起，舊 `ajax/m3u8.php` 已移除） | `mobile_app/anime/v3/m3u8.php` |
 | 廣告 | `ajax/videoCastcishu.php?s=194699` | `mobile_app/anime/v1/stat_ad.php` |
 
 APP 模式的請求帶固定的 App 標頭（寫死）：

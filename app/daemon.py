@@ -366,6 +366,10 @@ def delete_db_rows(sns):
     return _db.delete_db_rows(db_path, sns)
 
 
+def mark_db_skipped(sn, available=0):
+    return _db.mark_db_skipped(db_path, sn, available)
+
+
 def sns_still_tracked(sns):
     """Which of ``sns`` would be re-inserted by the next automatic scan?
 
@@ -436,8 +440,9 @@ def redownload(sn):
             return False
         anime = anime['anime']
 
+        result = None
         try:
-            anime.download(settings['download_resolution'], classify=settings['classify_bangumi'])
+            result = anime.download(settings['download_resolution'], classify=settings['classify_bangumi'])
         except BaseException as e:
             err_print(sn, '重新下載異常', '發生未知錯誤: ' + str(e), status=1)
             err_print(sn, '重新下載異常', '異常詳情:\n' + traceback.format_exc(), status=1, display=False)
@@ -447,6 +452,12 @@ def redownload(sn):
             state.thread_limiter.release()
             if sn in state.tasks_progress_rate.keys():
                 del state.tasks_progress_rate[sn]
+            if result is not None and getattr(result, 'permanent', False):
+                # Terminal, not a failure: record it so the daemon stops re-queueing it.
+                mark_db_skipped(sn, getattr(result, 'available', 0))
+                err_print(sn, '已跳過', (result.error or '不符合畫質設定')
+                          + '. 已標記為跳過; 要重來請先調整畫質設定再按重置.', status=1)
+                return False
             err_print(sn, '重新下載失敗', 'title=\"' + anime.get_title() + '\"', status=1)
             return False
 
@@ -525,13 +536,15 @@ def worker(sn, sn_info, realtime_show_file_size=False):
         state.processing_queue.remove(sn)
         state.thread_limiter.release()
         err_print(sn, '任務失敗', '從任務列隊中移除, 等待下次更新重試.', status=1)
+        note_task_failure('sn=' + str(sn) + ' 建立任務失敗 (解析或連線問題)')
         sys.exit(1)
 
     anime = anime['anime']
 
+    result = None
     try:
-        anime.download(settings['download_resolution'], bangumi_tag=bangumi_tag, rename=rename,
-                       realtime_show_file_size=realtime_show_file_size, classify=settings['classify_bangumi'])
+        result = anime.download(settings['download_resolution'], bangumi_tag=bangumi_tag, rename=rename,
+                                realtime_show_file_size=realtime_show_file_size, classify=settings['classify_bangumi'])
     except BaseException as e:
         err_print(sn, '下載異常', '發生未知錯誤: '+str(e), status=1)
         err_print(sn, '下載異常', '異常詳情:\n'+traceback.format_exc(), status=1, display=False)
@@ -541,12 +554,24 @@ def worker(sn, sn_info, realtime_show_file_size=False):
         state.queue.pop(sn)
         state.processing_queue.remove(sn)
         state.thread_limiter.release()
-        err_msg_detail = 'title=\"' + anime.get_title() + '\" 從任務列隊中移除, 等待下次更新重試.'
-        err_print(sn, '任務失敗', err_msg_detail, status=1)
         if int(sn) in state.tasks_progress_rate.keys():
             del state.tasks_progress_rate[int(sn)]
+        if result is not None and getattr(result, 'permanent', False):
+            # Not a failure -- this episode can never satisfy the current settings.
+            # Give it a terminal db state so it stops being re-queued (and therefore
+            # re-parsed) every cycle, and keep it OUT of the failure streak: a title
+            # that was never mastered in HD says nothing about the site being healthy.
+            mark_db_skipped(sn, getattr(result, 'available', 0))
+            err_print(sn, '已跳過',
+                      'title=' + anime.get_title() + ' ' + (result.error or '不符合畫質設定')
+                      + '. 已標記為跳過, 不再重試; 要重來請到「資料庫」分頁按重置.', status=1)
+            sys.exit(0)
+        err_msg_detail = 'title=\"' + anime.get_title() + '\" 從任務列隊中移除, 等待下次更新重試.'
+        err_print(sn, '任務失敗', err_msg_detail, status=1)
+        note_task_failure('sn=' + str(sn) + ' 下載未產出檔案')
         sys.exit(1)
 
+    state.record_success()  # a completed download clears the failure streak
     update_db(anime)
     download_cd = threading.Thread(target=download_cd_counter)
     download_cd.start()
@@ -619,9 +644,15 @@ def filter_dub_episodes(sn, episode_list):
 
 def check_tasks():
     for sn in sn_dict.keys():
+        if state.batch_download_paused:
+            # The auto-pause guard may trip mid-scan; stop issuing requests at once
+            # instead of walking the rest of sn_list.
+            err_print(0, '更新中止', '批次已暫停, 停止本次掃描', no_sn=True, status=1)
+            return
         anime = build_anime(sn)
         if anime['failed']:
             err_print(sn, '更新狀態', '檢查更新失敗, 跳過等待下次檢查', status=1)
+            note_task_failure('sn=' + str(sn) + ' 檢查更新失敗 (解析或連線問題)')
             continue
         anime = anime['anime']
         err_print(sn, '更新資訊', '正在檢查《' + anime.get_bangumi_name() + '》')
@@ -639,7 +670,7 @@ def check_tasks():
                     # a different mode): free, the title is already in hand.
                     if settings['skip_chinese_dub'] and is_chinese_dub(db['anime_name'], db['title']):
                         continue
-                    if (db['status'] == 0 or (db['remote_status'] == 0 and settings['upload_to_server'])) and ep not in state.queue.keys():
+                    if db['status'] != _db.STATUS_SKIPPED and (db['status'] == 0 or (db['remote_status'] == 0 and settings['upload_to_server'])) and ep not in state.queue.keys():
                         state.queue[ep] = sn_dict[sn]
                 except IndexError:
                     if anime.get_sn() == ep:
@@ -662,7 +693,7 @@ def check_tasks():
                 latest_sn = episode_list[-1]
             try:
                 db = read_db(latest_sn)
-                if (db['status'] == 0 or (db['remote_status'] == 0 and settings['upload_to_server'])) and latest_sn not in state.queue.keys():
+                if db['status'] != _db.STATUS_SKIPPED and (db['status'] == 0 or (db['remote_status'] == 0 and settings['upload_to_server'])) and latest_sn not in state.queue.keys():
                     state.queue[latest_sn] = sn_dict[sn]
             except IndexError:
                 if anime.get_sn() == latest_sn:
@@ -687,15 +718,26 @@ def __download_only(sn, dl_resolution='', dl_save_dir='', realtime_show_file_siz
         sys.exit(1)
     anime = anime['anime']
 
+    dl_result = None
     try:
         if dl_resolution:
-            anime.download(dl_resolution, dl_save_dir, realtime_show_file_size=realtime_show_file_size, classify=classify)
+            dl_result = anime.download(dl_resolution, dl_save_dir, realtime_show_file_size=realtime_show_file_size, classify=classify)
         else:
-            anime.download(settings['download_resolution'], dl_save_dir, realtime_show_file_size=realtime_show_file_size, classify=classify)
+            dl_result = anime.download(settings['download_resolution'], dl_save_dir, realtime_show_file_size=realtime_show_file_size, classify=classify)
     except BaseException as e:
         err_print(sn, '下載異常', '發生未知異常: ' + str(e), status=1)
         err_print(sn, '下載異常', '異常詳情:\n'+traceback.format_exc(), status=1, display=False)
         anime.video_size = 0
+        dl_result = None
+
+    if dl_result is not None and getattr(dl_result, 'permanent', False):
+        # Retrying cannot change the available resolutions -- bail out immediately
+        # instead of sleeping through three pointless attempts.
+        err_print(sn, '已跳過', (dl_result.error or '不符合畫質設定'), status=1)
+        state.thread_limiter.release()
+        if int(sn) in state.tasks_progress_rate.keys():
+            del state.tasks_progress_rate[int(sn)]
+        return
 
     while anime.video_size < 5:
         if err_counter >= 3:
@@ -1143,6 +1185,26 @@ def acquire_single_instance(port=SINGLE_INSTANCE_PORT):
     return True
 
 
+def _pause_message():
+    # One line explaining WHY the batch is idle, for the daemon log.
+    if state.pause_reason == 'startup':
+        return '待命中 (啟動時不自動連線), 按「繼續」或「立即檢查」開始'
+    if state.pause_reason == 'failures':
+        detail = ' 最後一次失敗: ' + state.last_failure if state.last_failure else ''
+        return ('已自動暫停: 連續 ' + str(state.consecutive_failures) + ' 個任務失敗, 停止繼續請求以免加重異常.'
+                + detail + ' 請先用「網站健檢」/「帳號健檢」找出原因, 排除後按「繼續」')
+    return '已暫停 (透過 Web 控制臺), 跳過本次檢查; 進行中的任務繼續'
+
+
+def note_task_failure(detail=''):
+    # Record one failed task and, if the streak hits the configured limit, pause
+    # the batch. This is the guard against the 2026-08 incident shape: a site
+    # change made every parse fail, and the daemon retried every episode at full
+    # speed for hours because nothing tracked systematic failure.
+    if state.record_failure(settings['auto_pause_after_failures'], detail):
+        err_print(0, '自動暫停', _pause_message(), no_sn=True, status=1)
+
+
 def run_daemon():
     # Auto-download daemon + (optional) web dashboard.
     global settings, sn_dict, danmu
@@ -1160,15 +1222,33 @@ def run_daemon():
     if settings['use_dashboard']:
         run_dashboard()
 
+    if settings['start_paused']:
+        # Offline start: come up idle and make NO outbound request -- not to the
+        # site, not to GitHub -- until the operator presses 繼續 or 立即檢查.
+        state.batch_download_paused = True
+        state.pause_reason = 'startup'
+        err_print(0, '啟動完成', '已進入待命狀態, 尚未連線. 請在監控頁按「繼續」或「立即檢查」開始更新',
+                  no_sn=True, status=2)
+
     state.daemon_running = True
+    version_checked = False
     while True:
         if state.shutting_down:
             err_print(0, '程式結束', '收到停止指令, daemon 迴圈退出', no_sn=True, status=2)
             break
         print()
         if state.batch_download_paused:
-            err_print(0, '批次下載', '已暫停 (透過 Web 控制臺), 跳過本次檢查; 進行中的任務繼續', no_sn=True, status=1)
+            err_print(0, '批次下載', _pause_message(), no_sn=True, status=1)
         else:
+            if not version_checked:
+                # Deferred out of startup so the process opens no connection until
+                # the operator actually asks for one.
+                version_checked = True
+                if settings['check_latest_version']:
+                    try:
+                        check_new_version()
+                    except BaseException as e:
+                        err_print(0, '版本檢查', '檢查新版本失敗, 略過: ' + str(e), no_sn=True, status=1)
             err_print(0, '開始更新', no_sn=True)
             cookies.test()  # test cookie
             if settings['read_sn_list_when_checking_update']:
@@ -1214,13 +1294,19 @@ def cli_main(argv=None):
     # The argparse one-shot CLI body (was aniGamerPlus.py __main__ 1035-1163).
     # Kept here so cli.py + the src shim both delegate to a single implementation.
     global resolution, classify, danmu
-    if settings['check_latest_version']:
-        check_new_version()
     version_msg = '當前AniGamerDownloader版本: ' + settings['AniGamerDownloader_version']
     print(version_msg)
 
     argv = sys.argv[1:] if argv is None else argv
     if len(argv) > 0:
+        # Version check only on an explicit one-shot command -- the operator has
+        # already asked to go online. With no argv we fall through to run_daemon(),
+        # which defers it until the batch actually starts (offline startup).
+        if settings['check_latest_version']:
+            try:
+                check_new_version()
+            except BaseException as e:
+                err_print(0, '版本檢查', '檢查新版本失敗, 略過: ' + str(e), no_sn=True, status=1)
         init_db()
         parser = argparse.ArgumentParser()
         parser.add_argument('--sn', '-s', type=int, help='影片sn碼(數字)')

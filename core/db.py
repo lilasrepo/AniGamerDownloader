@@ -147,6 +147,35 @@ def update_db(db_path, anime):
         db_locker.release()
 
 
+# status column: 0 = pending, 1 = downloaded, 2 = permanently skipped.
+# check_tasks only ever re-queues status 0, so 2 is terminal for free -- no schema
+# change needed. The dashboard's 重置 button puts a row back to 0.
+STATUS_PENDING = 0
+STATUS_DONE = 1
+STATUS_SKIPPED = 2
+
+
+def mark_db_skipped(db_path, sn, available=0):
+    """Terminal state for an episode that can never satisfy the current settings.
+
+    Written when the site does not offer a resolution at or above
+    ``min_resolution``. Records the ceiling actually seen in ``resolution`` so the
+    dashboard can show WHY it was skipped (and so a later settings change can be
+    judged against real numbers rather than a bare 0). Does not touch the file.
+    """
+    db_locker.acquire()
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE anime SET status=:status, resolution=:resolution WHERE sn=:sn",
+                       {'status': STATUS_SKIPPED, 'resolution': int(available or 0), 'sn': int(sn)})
+        conn.commit()
+        cursor.close()
+    finally:
+        conn.close()
+        db_locker.release()
+
+
 def reset_db_status(db_path, sn):
     # Web dashboard: reset a given sn's download status (status/remote_status -> 0) so it can be re-downloaded.
     # Does not delete the file on disk. If the sn is in sn_list, the next automatic scan will re-fetch it.

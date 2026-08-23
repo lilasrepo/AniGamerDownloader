@@ -480,6 +480,7 @@ const STATE_META = {
 	missing:        { label: '缺檔',     cls: 'st-missing' },
 	suspect:        { label: '大小可疑', cls: 'st-suspect' },
 	not_downloaded: { label: '尚未下載', cls: 'st-none' },
+	skipped:        { label: '已跳過',   cls: 'st-none' },
 	corrupt:        { label: '損毀',     cls: 'st-missing' },
 	verifying:      { label: '驗證中…',  cls: 'st-suspect' },
 	no_ffprobe:     { label: '無ffprobe', cls: 'st-none' },
@@ -570,7 +571,7 @@ function renderInventory() {
 		return;
 	}
 
-	let totalEps = 0, totalOk = 0, totalMissing = 0, totalSuspect = 0, totalNone = 0;
+	let totalEps = 0, totalOk = 0, totalMissing = 0, totalSuspect = 0, totalNone = 0, totalSkipped = 0;
 
 	inventoryData.forEach((series) => {
 		const c = series.counts;
@@ -579,6 +580,7 @@ function renderInventory() {
 		totalMissing += c.missing || 0;
 		totalSuspect += c.suspect || 0;
 		totalNone += c.not_downloaded || 0;
+		totalSkipped += c.skipped || 0;
 
 		const group = document.createElement('details');
 		group.className = 'inv-series';
@@ -627,7 +629,8 @@ function renderInventory() {
 	});
 
 	byId('inv_summary').textContent = '共 ' + totalEps + ' 集 · 完整 ' + totalOk
-		+ ' · 缺檔 ' + totalMissing + ' · 可疑 ' + totalSuspect + ' · 尚未下載 ' + totalNone;
+		+ ' · 缺檔 ' + totalMissing + ' · 可疑 ' + totalSuspect + ' · 尚未下載 ' + totalNone
+		+ (totalSkipped ? ' · 已跳過 ' + totalSkipped : '');
 }
 
 async function doReset(sns) {
@@ -760,6 +763,9 @@ async function doVerify(sns, btn) {
 
 let batchPaused = false;
 let batchDaemon = false;
+let batchReason = '';
+let batchFailures = 0;
+let batchLastFailure = '';
 
 function applyBatchState() {
 	const badge = byId('batch_state_badge');
@@ -780,12 +786,24 @@ function applyBatchState() {
 	btn.disabled = false;
 	checkBtn.disabled = false;
 	if (batchPaused) {
-		badge.textContent = '已暫停';
+		if (batchReason === 'startup') {
+			badge.textContent = '待命中（尚未連線）';
+			badge.title = '啟動時不主動連線。按「繼續」或「立即檢查」才會開始更新。';
+		} else if (batchReason === 'failures') {
+			badge.textContent = '已自動暫停（連續失敗 ' + batchFailures + '）';
+			badge.title = '連續失敗過多，已停止繼續請求。'
+				+ (batchLastFailure ? '最後一次失敗：' + batchLastFailure + ' ' : '')
+				+ '建議先跑「網站健檢」與「帳號健檢」找出原因。';
+		} else {
+			badge.textContent = '已暫停';
+			badge.title = '';
+		}
 		badge.className = 'badge st-suspect';
 		btn.textContent = '繼續';
 		btn.className = 'btn btn-primary';
 	} else {
 		badge.textContent = '運行中';
+		badge.title = '';
 		badge.className = 'badge st-ok';
 		btn.textContent = '暫停';
 		btn.className = 'btn btn-secondary';
@@ -794,8 +812,10 @@ function applyBatchState() {
 
 async function checkNow() {
 	try {
-		await postJson('/daemon/check_now', {});
-		alert('已觸發立即檢查，daemon 將馬上掃描一次 sn_list。');
+		const r = await postJson('/daemon/check_now', {});
+		alert('已觸發立即檢查，daemon 將馬上掃描一次 sn_list。'
+			+ (r && r.resumed ? '\n（原本處於暫停狀態，已一併解除）' : ''));
+		await refreshBatchStatus();
 	} catch (e) {
 		alert('觸發失敗：' + e.message);
 	}
@@ -993,6 +1013,9 @@ async function refreshBatchStatus() {
 		const s = await resp.json();
 		batchPaused = !!s.paused;
 		batchDaemon = !!s.daemon;
+		batchReason = s.reason || '';
+		batchFailures = s.failures || 0;
+		batchLastFailure = s.last_failure || '';
 		applyBatchState();
 	} catch (e) {
 		// leave the control as-is on error
@@ -1001,9 +1024,8 @@ async function refreshBatchStatus() {
 
 async function toggleBatch() {
 	try {
-		const s = await postJson(batchPaused ? '/batch/resume' : '/batch/pause', {});
-		batchPaused = !!s.paused;
-		applyBatchState();
+		await postJson(batchPaused ? '/batch/resume' : '/batch/pause', {});
+		await refreshBatchStatus();
 	} catch (e) {
 		alert('切換失敗：' + e.message);
 	}

@@ -69,6 +69,10 @@
 							<span class="field-label">略過中文配音　</span>
 							<span class="switch-control"><input id="skip_chinese_dub" type="checkbox"><span class="slider"></span></span>
 						</label>
+						<label class="field switch" data-tip="開啟後，程式啟動時不會對外發出任何請求（含網站與版本檢查），停在待命狀態，直到你在監控頁按「繼續」或「立即檢查」。">
+							<span class="field-label">啟動時不連線　</span>
+							<span class="switch-control"><input id="start_paused" type="checkbox"><span class="slider"></span></span>
+						</label>
 						<label class="field switch">
 							<span class="field-label">下載彈幕　　　</span>
 							<span class="switch-control"><input id="danmu" type="checkbox"><span class="slider"></span></span>
@@ -83,6 +87,17 @@
 								<option value="360">360P</option>
 							</select>
 						</label>
+						<label class="field" data-tip="想要的畫質拿不到時，最低可以接受降到多少。老番（例如 2004 年的作品）本來就只有 720P，設 720 就能正常下載；而 cookie 失效變遊客時只會出現 360P，仍然會被擋下來標記為「已跳過」。設 0 表示不設限。">
+							<span class="field-label">最低可接受畫質</span>
+							<select id="min_resolution">
+								<option value="1080">1080P（最嚴格）</option>
+								<option value="720">720P</option>
+								<option value="540">540P</option>
+								<option value="480">480P</option>
+								<option value="360">360P</option>
+								<option value="0">不設限</option>
+							</select>
+						</label>
 						<label class="field">
 							<span class="field-label">預設下載模式　</span>
 							<select id="default_download_mode">
@@ -94,6 +109,10 @@
 						<label class="field">
 							<span class="field-label">更新間隔　　　</span>
 							<input id="check_frequency" type="number" min="1" step="1" placeholder="單位分鐘">
+						</label>
+						<label class="field" data-tip="連續這麼多個任務失敗（解析失敗、下載沒產出檔案）就自動暫停批次，避免網站改版或 cookie 失效時整晚全速重試。填 0 關閉此保護。">
+							<span class="field-label">連續失敗自動暫停</span>
+							<input id="auto_pause_after_failures" type="number" min="0" step="1" placeholder="次數，0=關閉">
 						</label>
 						<label class="field">
 							<span class="field-label">最大並發下載數</span>

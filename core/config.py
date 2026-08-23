@@ -42,7 +42,7 @@ sn_list_path = os.path.join(data_dir, 'sn_list.txt')
 cookie_path = os.path.join(data_dir, 'cookie.txt')
 logs_dir = os.path.join(data_dir, 'logs')
 AniGamerDownloader_version = 'v0.1.2'
-latest_config_version = 17.3
+latest_config_version = 17.5
 latest_database_version = 2.0
 max_multi_thread = 5
 max_multi_downloading_segment = 5
@@ -169,7 +169,23 @@ def __init_settings():
                 # under the SAME series sn (episode-list keys prefixed 中文配音 / 粵語).
                 # Default True: only the original-audio episodes are scheduled.
                 'skip_chinese_dub': True,
+                # Quality floor. download_resolution is what we WANT; min_resolution is
+                # the lowest we will accept. Old titles that were never mastered above
+                # 720P (e.g. 2004-era series) then download at their real ceiling
+                # instead of failing forever, while a degraded/guest session -- which
+                # only ever offers 360P -- is still refused. Only consulted when
+                # lock_resolution is on; 0 means no floor.
+                'min_resolution': 720,
                 'use_mobile_api': False,
+                # Startup is OFFLINE: the daemon comes up paused and makes no
+                # request to the site (nor the GitHub version check) until the
+                # operator presses 繼續 or 立即檢查 in the dashboard.
+                'start_paused': True,
+                # Stop hammering the site when something is systematically broken
+                # (endpoint removed, cookie expired, rate limited). After this many
+                # CONSECUTIVE task failures the batch auto-pauses and waits for a
+                # human. 0 disables the guard.
+                'auto_pause_after_failures': 5,
                 'danmu': False,
                 'danmu_ban_words': [],
                 'check_latest_version': True,  # whether to check for new versions
@@ -336,6 +352,18 @@ def __update_settings(old_settings):  # upgrade the config file
         # 0.1.x fork: skip the Chinese/Cantonese dub episodes of dual-audio series
         new_settings['skip_chinese_dub'] = True
 
+    if 'min_resolution' not in new_settings.keys():
+        # 0.1.x fork: quality floor, replaces lock_resolution's exact-match-or-cancel
+        new_settings['min_resolution'] = 720
+
+    if 'start_paused' not in new_settings.keys():
+        # 0.1.x fork: no outbound request at startup until the operator asks for one
+        new_settings['start_paused'] = True
+
+    if 'auto_pause_after_failures' not in new_settings.keys():
+        # 0.1.x fork: auto-pause the batch after N consecutive task failures
+        new_settings['auto_pause_after_failures'] = 5
+
     if 'proxy' not in new_settings.keys() or 'proxies' in new_settings.keys():
         # v20 removed the chained proxy feature
         if new_settings['proxies']["1"]:
@@ -427,11 +455,32 @@ def __update_settings(old_settings):  # upgrade the config file
     __color_print(0, msg, status=2, no_sn=True)
 
 
+def __loads_config(text):
+    """Parse config.json, tolerating hand-edited un-escaped Windows paths.
+
+    ``write_settings`` uses ``json.dump``, which escapes backslashes properly, so
+    a file this program wrote is already valid JSON. Unconditionally re-escaping
+    it (the old behaviour) is NOT idempotent: every load/save round trip doubled
+    the backslashes in ``bangumi_dir`` / ``temp_dir``. ``os.path.isdir`` tolerates
+    repeated separators on Windows, so the corruption grew silently.
+
+    So: parse as-is first, and only fall back to the escaping hack when that
+    fails -- which is exactly the case it was written for (a human typed
+    ``F:\\capture`` into the file by hand).
+    """
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        # Double every backslash so a raw Windows path becomes valid JSON.
+        # Written with chr(92) deliberately: an re.sub replacement template
+        # re-interprets backslashes, which is how this line got halved once.
+        return json.loads(text.replace(chr(92), chr(92) * 2))
+
+
 def __read_settings_file():
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
-            # escape win paths
-            return json.loads(re.sub(r'\\', '\\\\\\\\', f.read()))
+            return __loads_config(f.read())
     except json.JSONDecodeError:
         # if it has a BOM header, strip it
         try:
@@ -439,7 +488,7 @@ def __read_settings_file():
             check_encoding(config_path)
             # re-read
             with open(config_path, 'r', encoding='utf-8') as f:
-                return json.loads(re.sub(r'\\', '\\\\\\\\', f.read()))
+                return __loads_config(f.read())
         except BaseException as e:
             __color_print(0, '讀取配置發生異常, 將重置配置! ' + str(e), status=1, no_sn=True)
             __init_settings()
