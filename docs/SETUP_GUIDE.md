@@ -1,7 +1,7 @@
 # AniGamerDownloader 設定指南
 
 > 從零把巴哈姆特動畫瘋 VIP 帳號的動畫下載到本機的 SOP（原始碼／開發用）。
-> 只想用免裝 Python 的可攜包或 Docker，見 [README](../README.md) 與 [docs/DESKTOP_BUILD.md](DESKTOP_BUILD.md)。
+> 只想用免裝 Python 的可攜包，見 [README](../README.md) 與 [docs/DESKTOP_BUILD.md](DESKTOP_BUILD.md)。
 
 ---
 
@@ -30,7 +30,7 @@ python -m venv .venv
   會開一個獨立的無痕視窗，登入完成後自動擷取並寫入 cookie，接著自動跑一次帳號健檢。
   優點：能拿到瀏覽器 JavaScript 讀不到的 **HttpOnly** cookie（`BAHARUNE` 等），
   且登入視窗直接套用 `config.json` 的 `ua`，**不會有 UA 不一致的問題**。
-  只在 pywebview 桌面視窗可用；用瀏覽器連 dashboard 或 Docker 版看不到這顆按鈕。
+  只在 pywebview 桌面視窗可用；用瀏覽器連 dashboard 看不到這顆按鈕。
 - **Web 介面貼上**：到「設定」分頁的「帳號 Cookie」區塊貼上 cookie 與 UA、儲存。
 - **手動**：cookie 單行存到 `data\cookie.txt`（UTF-8、結尾不換行），UA 填進 `data\config.json` 的 `ua`。
 
@@ -149,7 +149,7 @@ python -m venv .venv
 **狀態全在 `data\`**，更新只換程式碼、不動 `data\`：
 
 - **原始碼**：`git pull` → `.venv\Scripts\python -m pip install -r requirements-venv.txt -r shells\requirements-desktop.txt` → 重新啟動 `aniGamer.bat`。
-- **可攜桌面包 / Docker**：見 [README 的「更新」段](../README.md#更新)。
+- **可攜桌面包**：見 [README 的「更新」段](../README.md#更新)。
 
 啟動時若 GitHub 有新版，控制台日誌會提示（僅通知、不自動更新）；比對的是 `lilasrepo/AniGamerDownloader` 的最新 Release。
 
@@ -160,7 +160,7 @@ CI 會擋「程式內版本 ≠ 標籤」的發佈，因此順序固定：
 1. 更新 `core/config.py` 的 `AniGamerDownloader_version`（例如 `v0.1.2`），使其**與即將打的標籤一致**。
 2. commit。
 3. 打標籤並推送：`git tag v0.1.2 && git push origin v0.1.2`。
-4. GitHub Actions 先跑 `version-guard`（比對程式內版本與標籤，不一致直接失敗），再建 Windows 可攜包 + Docker 映像並建立 Release。
+4. GitHub Actions 先跑 `version-guard`（比對程式內版本與標籤，不一致直接失敗），再建 Windows 可攜包並建立 Release。
 5. Release 說明可事後用 `gh release edit <tag> --notes-file ...` 補上。
 
 > 更新檢查用**版本 tuple** 比較，標籤請維持數字式 `vX.Y.Z`。

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # Thin CLI one-shot entry: ``python cli.py -s <sn> [-m all] [-r 1080] ...``.
 #
-# The no-arg auto-download daemon lives in the shells (desktop / docker); this is
+# The no-arg auto-download daemon lives in the desktop shell; this is
 # purely the one-shot downloader, delegating to the daemon's argparse CLI
 # (app.daemon.cli_main). It does NOT write the db (same as the historical CLI
 # one-shot path). gevent is monkey-patched first, exactly like the shells.

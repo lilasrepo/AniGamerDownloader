@@ -19,7 +19,7 @@
 			</nav>
 			<div class="topbar-spacer"></div>
 			<div class="topbar-actions">
-				<button id="helpBtn" type="button" class="icon-btn tip-end" aria-label="使用說明" data-tip="使用說明：取得 cookie、編輯片單、解析度與輸出目錄、Docker 版與常見問題。">
+				<button id="helpBtn" type="button" class="icon-btn tip-end" aria-label="使用說明" data-tip="使用說明：取得 cookie、編輯片單、解析度與輸出目錄與常見問題。">
 					<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 						<circle cx="12" cy="12" r="9"></circle>
 						<path d="M9.6 9.2a2.5 2.5 0 1 1 3.3 2.4c-.6.2-.9.7-.9 1.3v.6"></path>
@@ -368,7 +368,7 @@
 						<span class="sgroup-summary" id="sum_cookie"></span>
 					</summary>
 					<div class="sgroup-body">
-						<p class="intro">貼上從瀏覽器取得的 <code>Cookie:</code> 標頭字串（用以登入 VIP 帳號下載 1080P），儲存後寫入 <code>cookie.txt</code>。Cookie 必須與下方「請求 UA」<strong>來自同一個瀏覽器</strong>，否則會被視為異常登入。詳細步驟見右上角的使用說明。Docker 版無法手動編輯檔案，請由此貼上。</p>
+						<p class="intro">貼上從瀏覽器取得的 <code>Cookie:</code> 標頭字串（用以登入 VIP 帳號下載 1080P），儲存後寫入 <code>cookie.txt</code>。Cookie 必須與下方「請求 UA」<strong>來自同一個瀏覽器</strong>，否則會被視為異常登入。詳細步驟見右上角的使用說明。</p>
 
 						<div id="login_window_box" class="login-box" hidden>
 							<p class="login-box-intro"><strong>桌面版捷徑：</strong>直接開一個獨立的<strong>無痕視窗</strong>登入動畫瘋，登入完成後自動把完整 cookie 寫回本機 —— 包含瀏覽器 JavaScript 讀不到的 HttpOnly 項目（例如 <code>BAHARUNE</code>），也不會有 UA 不一致的問題（登入視窗直接套用下方的「請求 UA」）。不需要手動複製貼上。</p>
@@ -496,7 +496,7 @@
 				<div class="dialog-body help-body">
 					<h3>一、如何取得並貼上 Cookie</h3>
 					<p>下載 VIP 1080P 需要登入帳號。本程式以瀏覽器的 <code>Cookie:</code> 標頭代替帳密登入。</p>
-					<p><strong>桌面版（aniGamer.bat）請優先用這個：</strong>到「設定」分頁展開「帳號 Cookie」，按「<strong>開啟登入視窗（無痕）</strong>」，在跳出的無痕視窗裡正常登入即可 —— cookie 會自動擷取寫入（含 JavaScript 讀不到的 HttpOnly 項目），UA 也自動對齊，不必手動複製。以下手動步驟是給<strong>瀏覽器或 Docker 使用者</strong>的備援路徑。</p>
+					<p><strong>桌面版（aniGamer.bat）請優先用這個：</strong>到「設定」分頁展開「帳號 Cookie」，按「<strong>開啟登入視窗（無痕）</strong>」，在跳出的無痕視窗裡正常登入即可 —— cookie 會自動擷取寫入（含 JavaScript 讀不到的 HttpOnly 項目），UA 也自動對齊，不必手動複製。以下手動步驟是給<strong>用瀏覽器連進來</strong>的備援路徑。</p>
 					<ol class="help-list">
 						<li>用電腦瀏覽器（Chrome／Edge／Firefox 皆可）登入<a href="https://ani.gamer.com.tw/" target="_blank" rel="noopener">巴哈姆特動畫瘋</a>，確認右上角顯示為已登入的 VIP 帳號。</li>
 						<li>隨意開啟一部動畫的播放頁（網址形如 <code>https://ani.gamer.com.tw/animeVideo.php?sn=12345</code>）。</li>
@@ -532,30 +532,18 @@
 						<li>「建立番劇資料夾」開啟時，每部番劇各自一個資料夾，較好整理。</li>
 					</ul>
 
-					<h3>四、Docker 版（NAS／mac／Linux）</h3>
-					<p>Docker 版以背景 daemon + 本網頁介面運作，設定與輸出皆透過<strong>掛載 volume</strong>：</p>
-					<ul class="help-list">
-						<li>掛載 <code>/data</code>：存放 <code>config.json</code>、<code>cookie.txt</code>、資料庫與日誌。第一次啟動會自動產生預設 <code>config.json</code>。</li>
-						<li>掛載一個<strong>輸出目錄</strong>（對應 NAS 上的下載資料夾），並在「設定 → 存放位置」把「下載目錄」指到容器內對應的掛載路徑。</li>
-						<li>容器內無法手動編輯 <code>cookie.txt</code>，請改用本介面「設定 → 帳號 Cookie」貼上。</li>
-						<li><strong>密碼保護（BasicAuth）</strong>：Docker 版強制啟用簡易密碼，由環境變數設定；空密碼會被拒絕啟動。請只在<strong>區域網路</strong>內使用，勿對外網直接暴露。</li>
-						<li>首次連上後，依序：貼 cookie → 設下載目錄 → 編輯片單 → 「立即檢查」開始追番。</li>
-					</ul>
-
-					<h3>五、常見問題</h3>
+					<h3>四、常見問題</h3>
 					<dl class="sn-help">
 						<dt>下載失敗或畫質掉回低畫質</dt>
 						<dd>多半是 cookie 過期或與 UA 不符。重新取得 cookie 與 UA（同一瀏覽器）後再儲存，並用儀表板的「帳號健檢」確認。</dd>
 						<dt>整批任務突然全部失敗</dt>
 						<dd>用儀表板的「網站健檢」定位是哪一步壞掉。連續失敗達設定次數時批次會自動暫停，修好後按「繼續」或「立即檢查」恢復。</dd>
 						<dt>合併／轉檔失敗</dt>
-						<dd>本程式需要 <code>ffmpeg</code>。桌面版請確認 <code>ffmpeg</code> 在 PATH 或放在程式旁；Docker 映像已內含。</dd>
+						<dd>本程式需要 <code>ffmpeg</code>。請確認 <code>ffmpeg</code> 在 PATH 上或放在程式旁。</dd>
 						<dt>檔名出現 E01 與舊的 E1 混在一起</dt>
 						<dd>集數補零規則已改為「預設兩碼、破百自動三碼」。舊的下載檔仍是舊命名，資料庫盤點時可能把舊檔當成缺漏；必要時手動改名或忽略。</dd>
 						<dt>設定改了沒生效</dt>
 						<dd>記得按「儲存設定」。部分設定會在下一輪檢查才套用，可到儀表板按「立即檢查」加速。</dd>
-						<dt>反向代理掛在子路徑無法運作</dt>
-						<dd>本介面部分請求使用根路徑，建議 Docker 版掛在反向代理的<strong>根路徑</strong>，不要掛在子目錄。</dd>
 					</dl>
 				</div>
 				<footer class="dialog-footer">

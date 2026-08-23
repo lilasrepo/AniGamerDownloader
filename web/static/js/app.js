@@ -983,8 +983,8 @@ async function runDoctor() {
 // ---- in-app incognito login (desktop window only) ---------------------------
 //
 // Only the pywebview desktop shell exposes window.pywebview.api (see
-// shells/desktop.py LoginApi). In a browser or under Docker it is absent, so the
-// whole box stays hidden and the paste editor below remains the only path.
+// shells/desktop.py LoginApi). In a plain browser it is absent, so the whole
+// box stays hidden and the paste editor below remains the only path.
 // pywebview injects the bridge asynchronously, hence the pywebviewready listener
 // AND the immediate check — whichever happens first wins.
 

@@ -91,7 +91,7 @@ def _ensure_child_streams():
 
 def _serve_child():
     # monkey-patch BEFORE importing app/core (the engine's threading/socket/ssl
-    # calls rely on being patched), exactly like the docker entry + src shims.
+    # calls rely on being patched), exactly like cli.py.
     from gevent import monkey
     monkey.patch_all()
     _ensure_child_streams()
@@ -307,7 +307,7 @@ def missing_required(pairs):
 class LoginApi:
     """js_api bridge exposed to the dashboard SPA as ``window.pywebview.api``.
 
-    Only reachable from the desktop window; a browser or the Docker shell has no
+    Only reachable from the desktop window; a plain browser has no
     ``window.pywebview``, so the SPA hides the buttons there and the paste editor
     stays the only path.
     """

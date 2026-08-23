@@ -23,9 +23,9 @@ Inverted seams vs the original module:
 * Cookie read/test delegates to a shared :class:`core.cookies.CookieStore`.
 
 ``gevent.monkey.patch_all()`` is NOT done here — it stays at the shell/entry
-layer (``src/aniGamerPlus.py`` shim, ``shells/desktop.py``,
-``shells/docker/entrypoint.py``) BEFORE this module is imported, so the engine's
-threading/socket calls run patched under the daemon and unpatched under the CLI.
+layer (``shells/desktop.py``, ``cli.py``) BEFORE this module is imported, so
+the engine's threading/socket calls run patched under the daemon and unpatched
+under the CLI.
 """
 
 import os

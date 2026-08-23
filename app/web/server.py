@@ -13,12 +13,11 @@ Changes vs the original:
 * NEW routes ``GET /data/cookie`` (current cookie, masked) + ``POST /cookie``
   (write via :meth:`core.cookies.CookieStore.write`), mirroring the
   ``/data/sn_list`` + ``/sn_list`` pair.
-* :func:`run` gains a ``force_basic_auth`` option for the Docker shell.
 
 ``gevent.monkey.patch_all()`` is NOT done here — the shell/entry does it before
 importing this module (the original did it at the top of Server.py, but with the
-app/shell split the patch belongs to the entry layer; the ``src/Server.py`` shim
-and ``shells/docker/entrypoint.py`` patch first).
+app/shell split the patch belongs to the entry layer; ``shells/desktop.py``
+patches first).
 """
 
 import json
@@ -792,11 +791,11 @@ def _ensure_self_signed_cert(crt_path, key_path):
         return False
 
 
-def run(force_basic_auth=False):
+def run():
     settings = Config.read_settings()  # read config
 
-    if settings['dashboard']['BasicAuth'] or force_basic_auth:
-        # BasicAuth config. force_basic_auth lets the Docker shell force it on (even if config has it off).
+    if settings['dashboard']['BasicAuth']:
+        # BasicAuth config.
         app.config['BASIC_AUTH_USERNAME'] = settings['dashboard']['username']  # BasicAuth user
         app.config['BASIC_AUTH_PASSWORD'] = settings['dashboard']['password']  # BasicAuth password
         app.config['BASIC_AUTH_FORCE'] = True  # site-wide auth

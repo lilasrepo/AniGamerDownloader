@@ -40,7 +40,7 @@ _QUEUE_FILENAME = 'download_queue.json'
 
 
 def _queue_path():
-    # resolved late: the Docker shell repoints Config.data_dir at the mounted volume
+    # resolved late: Config.data_dir is settled by the entry layer before first use
     return os.path.join(Config.data_dir, _QUEUE_FILENAME)
 
 
