@@ -12,7 +12,10 @@
 
 - **自動巡檢下載**：把作品的 `sn`（網址 `?sn=` 那串）加進清單，daemon 依設定頻率檢查新集數並下載；
   支援 single / latest / all / largest-sn 等模式。
-- **VIP 畫質**：貼上 VIP 帳號 cookie 即可下 1080p（須搭配產生該 cookie 的同一瀏覽器 UA）。
+- **VIP 畫質**：登入 VIP 帳號即可下 1080p。桌面版可用「**開啟登入視窗（無痕）**」直接在程式內登入，
+  自動擷取 cookie（含 JavaScript 讀不到的 HttpOnly 項目）並對齊 UA；也可手動貼上 `Cookie:` 標頭。
+- **畫質下限**：`download_resolution` 是你想要的、`min_resolution` 是最低可接受的。
+  老片本來就沒有高畫質時照樣收；但登入失效只拿到 360P 的情況會被擋下並**標記為跳過**，不會靜靜歸檔成已完成。
 - **彈幕**：可一併抓彈幕並轉成 `.ass`（樣式由 `data/DanmuTemplate.ass` 控制）。
 - **單頁 Web 控制台**（4 個分頁）：
   - **儀表板** — 帳號狀態、批次控制（暫停／繼續／立即檢查／網站健檢）、下載佇列、進行中任務與即時日誌（輪詢，非 websocket）。
@@ -21,6 +24,13 @@
   - **設定** — 所有設定，分成五組可折疊區塊；含帳號 Cookie（顯示為遮罩，不回傳明碼）與備份資料 (zip)。
 - **手動下載佇列**：資料庫／片單裡挑好的項目先進佇列（寫入 `data/download_queue.json`，重開仍在），
   到儀表板確認路徑後按「開始」才真的下載。
+- **啟動不主動連線**：開程式時批次是暫停的，**零對外請求**（連版本檢查都不發）。要開始才按「繼續」或「立即檢查」。
+- **連續失敗自動暫停**：連續 N 次任務失敗（預設 5，`0` 關閉）就自動停下整批，避免站點改版時整晚全速重試。
+- **自我修復**：解析失敗會把當下的站台原始回應存到 `data/logs/diag/`，並記下壞在哪一步。
+  按「**網站健檢**」跑一次真實解析鏈定位斷點，再對照 [docs/SITE_API.md](docs/SITE_API.md)（步驟代碼 → 端點 → 解析器位置）修。
+- **帳號健檢**：一鍵確認 cookie 是否還被站方接受（有沒有被降成訪客）以及是不是 VIP。
+  只發**一次**真實請求，不會被排程自動觸發。
+- **備份資料 (zip)**：設定分頁一鍵打包 `config.json`／`cookie.txt`／`sn_list.txt` ＋ 資料庫快照（**含 cookie，請妥善保管**）。
 - **可攜**：所有路徑可在介面內設定；打包後 `data/`（設定／cookie／db／logs）放在 exe 旁，整夾帶走即保留。
 - **單一實例鎖**（loopback `47763`）避免重複下載。
 
@@ -49,7 +59,8 @@
 ```bash
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements-venv.txt
-.venv\Scripts\python -m pip install pywebview     # 桌面視窗才需要
+.venv\Scripts\python -m pip install -r shells
+equirements-desktop.txt   # 桌面視窗才需要
 .venv\Scripts\python shells\desktop.py            # 獨立視窗，內含 http://127.0.0.1:5000
 ```
 
