@@ -159,7 +159,7 @@ def _import_webview():
 
 
 def _terminate_child(child):
-    # Kill the child daemon AND its descendants (e.g. a gost proxy subprocess).
+    # Kill the child daemon AND its descendants.
     if child.poll() is not None:
         return
     if os.name == 'nt':

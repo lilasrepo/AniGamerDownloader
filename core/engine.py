@@ -102,7 +102,7 @@ def _random_string(num):
 class AnimeDownloader:
     def __init__(self, sn, *, settings, paths, ffmpeg, cookies,
                  on_progress=None, logger=None, settings_writer=None,
-                 debug_mode=False, gost_port=34173):
+                 debug_mode=False):
         self._settings = settings
         self._cookie_store = cookies
         self._cookies = cookies.read()
@@ -114,7 +114,6 @@ class AnimeDownloader:
         self._on_progress = on_progress or _noop_progress
         self._log = logger or _default_err_print
         self._settings_writer = settings_writer or _config.write_settings
-        self._gost_port = str(gost_port)
 
         self._session = requests.session()
         if 'firefox' in self._settings['ua'].lower():
@@ -137,6 +136,8 @@ class AnimeDownloader:
         self.realtime_show_file_size = False
         self.upload_succeed_flag = False
         self._danmu = False
+        # Outbound proxy support was removed; kept as an always-empty dict (= no
+        # proxy) so __request's pyhttpx branch (proxies=self._proxies) needs no change.
         self._proxies = {}
 
         self.season_title_filter = re.compile('第[零一二三四五六七八九十]{1,3}季$')
@@ -150,8 +151,6 @@ class AnimeDownloader:
         if debug_mode:
             print('當前為debug模式')
         else:
-            if self._settings['use_proxy']:  # use proxy
-                self.__init_proxy()
             self.__init_header()  # http header
             self.__get_src()  # fetch web page, produce self._src (BeautifulSoup)
             self.__get_title()  # extract page title
@@ -159,25 +158,6 @@ class AnimeDownloader:
             self.__get_episode()  # extract episode code, str
             # extract episode list, structure {'episode': sn}, stored to self._episode_list, sn is int; key is str to account for movies, sp, etc.
             self.__get_episode_list()
-
-    def __init_proxy(self):
-        if self._settings['use_gost']:
-            # case where gost is needed, proxy to gost
-            os.environ['HTTP_PROXY'] = 'http://127.0.0.1:' + self._gost_port
-            os.environ['HTTPS_PROXY'] = 'http://127.0.0.1:' + self._gost_port
-            self._proxies = {'https': 'http://127.0.0.1:' + self._gost_port,
-                             'http': 'http://127.0.0.1:' + self._gost_port}
-        else:
-            # case where gost is not needed
-            os.environ['HTTP_PROXY'] = self._settings['proxy']
-            os.environ['HTTPS_PROXY'] = self._settings['proxy']
-            self._proxies = {'https': self._settings['proxy'],
-                             'http': self._settings['proxy']}
-
-        if self._settings['no_proxy_akamai']:
-            os.environ['NO_PROXY'] = "127.0.0.1,localhost,bahamut.akamaized.net"
-        else:
-            os.environ['NO_PROXY'] = "127.0.0.1,localhost"
 
     def renew(self):
         self.__get_src()

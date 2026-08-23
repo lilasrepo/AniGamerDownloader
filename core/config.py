@@ -128,9 +128,6 @@ def __init_settings():
                 'zerofill': 2,  # min digits for episode-name zero padding, <=1 no padding; dynamically widens to the season's max episode-number digit count (auto 3 digits past 100)
                 # cookie auto-refresh checks the UA
                 'ua': "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36",
-                'use_proxy': False,
-                'proxy': 'http://user:passwd@example.com:1000',  # proxy feature, config_version v13.0 removed chained proxies
-                "no_proxy_akamai": False,  # do not proxy the akamai CDN
                 'upload_to_server': False,
                 'ftp': {  # upload files to a remote server
                     'server': '',
@@ -222,9 +219,6 @@ def __update_settings(old_settings):  # upgrade the config file
 
     if 'upload_to_server' not in new_settings.keys():  # v2.0 added the upload switch
         new_settings['upload_to_server'] = False
-
-    if 'use_proxy' not in new_settings.keys():  # v2.0 added the proxy switch
-        new_settings['use_proxy'] = False
 
     if 'show_error_detail' not in new_settings['ftp'].keys():  # v2.0 added the show-FTP-transfer-error switch
         new_settings['ftp']['show_error_detail'] = False
@@ -364,15 +358,6 @@ def __update_settings(old_settings):  # upgrade the config file
         # 0.1.x fork: auto-pause the batch after N consecutive task failures
         new_settings['auto_pause_after_failures'] = 5
 
-    if 'proxy' not in new_settings.keys() or 'proxies' in new_settings.keys():
-        # v20 removed the chained proxy feature
-        if new_settings['proxies']["1"]:
-            # migrate the user's existing config
-            new_settings['proxy'] = new_settings['proxies']["1"]
-        else:
-            new_settings['proxy'] = 'http://user:passwd@example.com:1000'
-        del new_settings['proxies']
-
     if 'use_dashboard' not in new_settings.keys():
         # v20 launched the web dashboard
         new_settings['use_dashboard'] = True
@@ -436,10 +421,6 @@ def __update_settings(old_settings):  # upgrade the config file
     if 'only_use_vip' not in new_settings.keys():
         new_settings['only_use_vip'] = False
 
-    if 'no_proxy_akamai' not in new_settings.keys():
-        # v24.3 added whether to proxy the akamai CDN (video stream)
-        new_settings['no_proxy_akamai'] = False
-
     if 'download_cd' not in new_settings.keys():
         # v24.4 download cooldown time (seconds)
         new_settings['download_cd'] = 60
@@ -447,6 +428,11 @@ def __update_settings(old_settings):  # upgrade the config file
     if 'parse_sn_cd' not in new_settings.keys():
         # v24.4 sn parse cooldown time (seconds)
         new_settings['parse_sn_cd'] = 5
+
+    # 0.1.x fork: outbound proxy + gost fallback feature removed entirely;
+    # silently drop these obsolete keys so old config files don't carry them.
+    for _obsolete_key in ('use_proxy', 'proxy', 'no_proxy_akamai', 'proxies', 'use_gost'):
+        new_settings.pop(_obsolete_key, None)
 
     new_settings['config_version'] = latest_config_version
     with open(config_path, 'w', encoding='utf-8') as f:
@@ -614,17 +600,6 @@ def read_settings(config=''):
     settings['working_dir'] = working_dir
     settings['AniGamerDownloader_version'] = AniGamerDownloader_version
 
-    use_gost = False
-    if not (re.match(r'^http://', settings['proxy'].lower())
-            or re.match(r'^https://', settings['proxy'].lower())
-            or re.match(r'^socks5://', settings['proxy'].lower())  # v12 onward natively supports the socks5 proxy
-            or re.match(r'^socks5h://', settings['proxy'].lower())):  # socks5h resolves the domain remotely
-        #  if a protocol we do not support ourselves appears
-        use_gost = True  # then enable gost
-    settings['use_gost'] = use_gost
-    if not settings['proxy']:
-        settings['use_proxy'] = False
-
     if settings['multi-thread'] > max_multi_thread:
         # if the thread count exceeds the limit
         settings['multi-thread'] = max_multi_thread
@@ -772,7 +747,6 @@ def write_settings(web_config):
         web_config['temp_dir'] = ''
     del web_config['working_dir']
     del web_config['AniGamerDownloader_version']
-    del web_config['use_gost']
 
     # write the config to disk
     with open(config_path, 'w', encoding='utf-8') as f:
@@ -792,33 +766,6 @@ def get_local_ip():
     except:
         local_ip.close()
     return local_ip
-
-
-def parse_proxy(proxy_str: str) -> dict:
-    if len(proxy_str) == 0 or proxy_str.isspace():
-        return {}
-
-    result = {}
-
-    if re.match(r'.*@.*', proxy_str):
-        proxy_user = re.sub(r':(\/\/)?', '', re.findall(r':\/\/.*?:', proxy_str)[0])
-        proxy_passwd = re.sub(r'(:\/\/:)?@?', '', re.sub(proxy_user, '', re.findall(r':.*@', proxy_str)[0]))
-        result['proxy_user'] = proxy_user
-        result['proxy_passwd'] = proxy_passwd
-        proxy_str = proxy_str.replace(proxy_user + ':' + proxy_passwd + '@', '')
-    else:
-        result['proxy_user'] = None
-        result['proxy_passwd'] = None
-
-    proxy_protocol = re.sub(r':\/\/.*', '', proxy_str).upper()
-    proxy_ip = re.sub(r':(\/\/)?', '', re.findall(r':.*:', proxy_str)[0])
-    proxy_port = re.sub(r':', '', re.findall(r':\d+', proxy_str)[0])
-
-    result['proxy_protocol'] = proxy_protocol
-    result['proxy_ip'] = proxy_ip
-    result['proxy_port'] = proxy_port
-
-    return result
 
 
 if __name__ == '__main__':

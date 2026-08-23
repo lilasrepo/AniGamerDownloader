@@ -138,7 +138,6 @@ def _apply_env_overrides():
     settings['dashboard']['password'] = password
     settings['dashboard']['SSL'] = False             # LAN only; leave TLS to the reverse proxy
     settings['use_dashboard'] = True
-    settings['use_proxy'] = False                    # no gost proxy by default inside the container
 
     settings['bangumi_dir'] = output_dir
     settings['save_logs'] = True

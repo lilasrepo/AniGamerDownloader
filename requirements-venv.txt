@@ -7,7 +7,6 @@ pip-system-certs==4.0
 requests==2.31.0
 chardet==3.0.4
 beautifulsoup4==4.11.1
-pysocks==1.7.1
 pyhttpx
 # --- C extensions: bumped to first cp311-wheel releases ---
 greenlet>=3.0.3

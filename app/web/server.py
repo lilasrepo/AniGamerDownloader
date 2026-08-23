@@ -48,6 +48,7 @@ import ssl
 from gevent.pywsgi import WSGIServer
 
 from core import config as Config
+from core import queue_store
 from core.logging import err_print
 from app import daemon
 from app.daemon import __cui as cui
@@ -230,8 +231,12 @@ def set_cookie():
 @app.route('/data/tasks_progress_json', methods=['GET'])
 def tasks_progress_json():
     # Polling endpoint: active = tasks currently downloading/parsing (have a progress bar);
-    # pending = scheduled tasks still waiting for a concurrency slot.
-    return jsonify({'active': state.tasks_progress_rate, 'pending': state.pending_tasks})
+    # pending = scheduled tasks still waiting for a concurrency slot;
+    # queue = the manual queue, staged by the operator and not started yet.
+    # The queue is served from memory, so adding it costs the poll nothing.
+    return jsonify({'active': state.tasks_progress_rate,
+                    'pending': state.pending_tasks,
+                    'queue': queue_store.store.list()})
 
 
 def _tail_lines(path, n):
@@ -328,6 +333,9 @@ def _episode_state(r):
         'sn': r['sn'], 'episode': r['episode'], 'title': r['title'],
         'resolution': r['resolution'], 'db_size': db_size, 'actual_size': actual_mb,
         'exists': exists, 'status': r['status'], 'state': state_,
+        # recorded destination (empty for rows that never finished a download);
+        # the queue shows it so you can see where an item will land
+        'path': path or '',
     }
 
 
@@ -402,6 +410,150 @@ def db_redownload():
     threading.Thread(target=run_redownload, daemon=True).start()
     err_print(0, 'Dashboard', '透過 Web 立即下載 ' + str(len(sns)) + ' 集', no_sn=True, status=2)
     return jsonify({'status': 200, 'count': len(sns)})
+
+
+# ---------------------------------------------------------------------------
+# Manual download queue
+#
+# Staging area between "I picked something" and "start downloading it". The
+# dashboard lists what is staged; nothing here touches the network until
+# /queue/start dispatches it down the SAME two paths the immediate buttons used
+# (redownload for db rows, __cui for one-off tasks).
+# ---------------------------------------------------------------------------
+
+def _clean_manual_options(data):
+    """Validate one-off task options, falling back to config. Same rules as /manualTask."""
+    settings = Config.read_settings()
+
+    resolution = data.get('resolution')
+    if resolution not in ('360', '480', '540', '720', '1080'):
+        resolution = settings['download_resolution']
+
+    mode = data.get('mode')
+    if mode not in ('single', 'latest', 'all', 'largest-sn'):
+        mode = 'single'
+
+    try:
+        thread = int(data.get('thread') or 1)
+    except (TypeError, ValueError):
+        thread = 1
+    thread = min(max(thread, 1), Config.get_max_multi_thread())
+
+    return {
+        'resolution': resolution,
+        'mode': mode,
+        'thread': thread,
+        'classify': bool(data.get('classify', True)),
+        'danmu': bool(data.get('danmu', False)),
+    }
+
+
+def _dispatch_queue_items(items):
+    """Run staged items one after another on a background thread.
+
+    Register every item in ``state.pending_tasks`` (the same registry the
+    daemon's scheduler uses) and keep it there for the WHOLE run, popping only
+    when the item is finished. Between pressing 開始 and the first byte an item
+    is invisible otherwise: ``redownload``/``__cui`` block on
+    ``state.thread_limiter`` while another download holds the slot, and then
+    spend the parse phase with no entry in ``tasks_progress_rate`` yet. Popping
+    at dispatch time made both of those windows show nothing at all. The poll
+    endpoint dual-writes, and the dashboard drops anything present in ``active``,
+    so an item that reaches the progress bar is never listed twice.
+    """
+    for item in items:
+        sn = int(item.get('sn'))
+        # never clobber an entry the daemon's own scheduler already owns
+        state.pending_tasks.setdefault(sn, {
+            'name': item.get('title') or '',
+            'episode': '',
+            # the daemon's own pending items wait purely on the concurrency cap;
+            # these may also still be parsing, so say something true for both
+            'status': '準備中（解析或等待下載槽）',
+        })
+
+    def run():
+        for item in items:
+            sn = item.get('sn')
+            try:
+                if item.get('kind') == 'manual':
+                    o = item.get('options') or {}
+                    cui(sn, o.get('resolution'), o.get('mode'), o.get('thread'), [],
+                        classify=o.get('classify', True), realtime_show=False,
+                        cui_danmu=o.get('danmu', False))
+                else:
+                    redownload(sn)
+            except Exception as e:
+                err_print(sn, '下載佇列', '任務異常, 跳過此項繼續: ' + str(e), status=1)
+            finally:
+                # a crash before the download registered progress must not leave
+                # a ghost in 待處理
+                state.pending_tasks.pop(int(sn), None)
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+@app.route('/data/queue', methods=['GET'])
+def queue_list():
+    return jsonify({'items': queue_store.store.list()})
+
+
+@app.route('/queue/add', methods=['POST'])
+def queue_add():
+    # body: {items: [{kind: 'db'|'manual', sn, title, options}]}
+    data = json.loads(request.get_data(as_text=True))
+    settings = Config.read_settings()
+    entries = []
+    for raw in data.get('items', []):
+        entry = dict(raw)
+        if entry.get('kind') == 'manual':
+            entry['options'] = _clean_manual_options(entry.get('options') or {})
+        # A db row that already finished once carries the real file path. Anything
+        # else (never downloaded, or a one-off task) only knows the destination
+        # folder -- bangumi_dir, already resolved (and fallback-checked) by
+        # read_settings. Flagged so the UI can say which it is.
+        if entry.get('path'):
+            entry['path_exact'] = True
+        else:
+            entry['path'] = settings['bangumi_dir']
+            entry['path_exact'] = False
+        entries.append(entry)
+
+    added, replaced = queue_store.store.add(entries)
+    err_print(0, 'Dashboard', '加入下載佇列 %d 項%s'
+              % (added, ('（更新 %d 項）' % replaced) if replaced else ''),
+              no_sn=True, status=2)
+    return jsonify({'status': 200, 'added': added, 'replaced': replaced,
+                    'items': queue_store.store.list()})
+
+
+@app.route('/queue/remove', methods=['POST'])
+def queue_remove():
+    data = json.loads(request.get_data(as_text=True))
+    removed = queue_store.store.remove(data.get('ids', []))
+    return jsonify({'status': 200, 'removed': removed,
+                    'items': queue_store.store.list()})
+
+
+@app.route('/queue/start', methods=['POST'])
+def queue_start():
+    # body: {ids: [...]}; an empty/absent list starts the whole queue.
+    data = json.loads(request.get_data(as_text=True))
+    items = queue_store.store.take(data.get('ids') or None)
+    if not items:
+        return jsonify({'status': 200, 'started': 0, 'items': queue_store.store.list()})
+
+    _dispatch_queue_items(items)
+    err_print(0, 'Dashboard', '開始下載佇列中的 ' + str(len(items)) + ' 項',
+              no_sn=True, status=2)
+    return jsonify({'status': 200, 'started': len(items),
+                    'items': queue_store.store.list()})
+
+
+@app.route('/queue/clear', methods=['POST'])
+def queue_clear():
+    removed = queue_store.store.clear()
+    return jsonify({'status': 200, 'removed': removed, 'items': []})
 
 
 @app.route('/batch/status', methods=['GET'])

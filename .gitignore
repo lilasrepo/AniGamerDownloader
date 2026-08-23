@@ -136,6 +136,7 @@ data/cookie2.txt
 data/invalid_cookie.txt
 data/sn_list.txt
 data/aniGamer.db
+data/download_queue.json
 data/logs/
 data/temp/
 data/bangumi/

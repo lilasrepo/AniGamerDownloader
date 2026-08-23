@@ -5,7 +5,7 @@
 
 Moved from ``src/aniGamerPlus.py`` (build_anime / read/insert/update db wrappers /
 redownload / worker / check_tasks / __download_only / __get_info_only /
-__get_danmu_only / __cui / download_cd_counter / proxy+gost helpers /
+__get_danmu_only / __cui / download_cd_counter /
 acquire_single_instance / run_daemon / version-check / signal handlers).
 
 Inverted seams vs the original module:
@@ -32,7 +32,6 @@ import os
 import sys
 import time
 import re
-import random
 import traceback
 import argparse
 import signal
@@ -71,7 +70,6 @@ danmu = settings['danmu']
 SINGLE_INSTANCE_PORT = 47763   # fixed loopback port used by the single-instance lock
 _single_instance_socket = None  # held after binding until process exit (avoids GC)
 thread_tasks = []
-gost_subprocess = None  # holds gost's subprocess.Popen object, used to kill gost on exit
 _ffmpeg_path = None     # resolved ffmpeg executable path (lazy, injected into the engine)
 
 
@@ -81,18 +79,6 @@ def port_is_available(port):
     result = sock.connect_ex(('127.0.0.1', port))
     sock.close()
     return result != 0
-
-
-def _random_gost_port():
-    random_port = random.randint(40000, 60000)
-    while not port_is_available(random_port):
-        random_port = random.randint(40000, 60000)
-    return random_port
-
-
-# A concrete port value (the original reassigned the gost_port() function result
-# onto the same name at module load: aniGamerPlus.py:932 `gost_port = gost_port()`).
-gost_port = _random_gost_port()
 
 
 def locate_ffmpeg():
@@ -130,15 +116,9 @@ def build_anime(sn):
     anime = {'anime': None, 'failed': True}
     try:
         ffmpeg = locate_ffmpeg()
-        if settings['use_gost']:
-            # if using gost, pick a random gost listen port
-            a = AnimeDownloader(sn, settings=settings, paths=_build_paths(), ffmpeg=ffmpeg,
-                                cookies=cookies, on_progress=state.on_progress, logger=err_print,
-                                settings_writer=Config.write_settings, gost_port=gost_port)
-        else:
-            a = AnimeDownloader(sn, settings=settings, paths=_build_paths(), ffmpeg=ffmpeg,
-                                cookies=cookies, on_progress=state.on_progress, logger=err_print,
-                                settings_writer=Config.write_settings)
+        a = AnimeDownloader(sn, settings=settings, paths=_build_paths(), ffmpeg=ffmpeg,
+                            cookies=cookies, on_progress=state.on_progress, logger=err_print,
+                            settings_writer=Config.write_settings)
         anime['anime'] = a
         anime['failed'] = False
 
@@ -1021,7 +1001,6 @@ def __cui(sn, cui_resolution, cui_download_mode, cui_thread_limit, ep_range,
         print('所有任務已添加至列隊, 共 ' + str(tasks_counter) + ' 個任務, ' + '執行緒數: ' + str(cui_thread_limit) + '\n')
 
     __kill_thread_when_ctrl_c()
-    kill_gost()
 
     if user_cmd:
         print()
@@ -1040,14 +1019,8 @@ def __kill_thread_when_ctrl_c():
                 break
 
 
-def kill_gost():
-    if gost_subprocess is not None:
-        gost_subprocess.kill()
-
-
 def user_exit(signum, frame):
     err_print(0, '你終止了程序!', '\n', status=1, no_sn=True, prefix='\n\n')
-    kill_gost()
     sys.exit(255)
 
 
@@ -1062,36 +1035,6 @@ def check_new_version():
     if _version_tuple(settings['AniGamerDownloader_version']) < _version_tuple(remote_version['tag_name']):
         msg = '發現GitHub上有新版本: '+remote_version['tag_name']+'\n更新內容:\n'+remote_version['body']+'\n'
         err_print(0, msg, status=1, no_sn=True)
-
-
-def __init_proxy():
-    if settings['use_gost']:
-        print('使用代理連接動畫瘋, 使用擴展的代理協議')
-        check_gost = subprocess.Popen('gost -h', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=(0x08000000 if os.name == 'nt' else 0))
-        if check_gost.stderr.readlines():
-            gost_path = 'gost'
-        else:
-            if 'Windows' in platform.system():
-                gost_path = os.path.join(working_dir, 'gost.exe')
-            else:
-                gost_path = os.path.join(working_dir, 'gost')
-            if not os.path.exists(gost_path):
-                err_print(0, '當前代理使用擴展協議, 需要使用gost, 但是gost未找到', status=1, no_sn=True)
-                raise FileNotFoundError
-        gost_cmd = [gost_path, '-L=:'+str(gost_port), '-F=' + settings['proxy']]
-
-        def run_gost():
-            global gost_subprocess
-            gost_subprocess = subprocess.Popen(gost_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=(0x08000000 if os.name == 'nt' else 0))
-            gost_subprocess.communicate()
-
-        run_gost_threader = threading.Thread(target=run_gost)
-        run_gost_threader.daemon = True
-        run_gost_threader.start()
-        time.sleep(3)
-
-    else:
-        print('使用代理連接動畫瘋, 使用http/https/socks5協議')
 
 
 def do_request(url, headers, cookies, params=None):
@@ -1215,9 +1158,6 @@ def run_daemon():
     version_msg = '當前AniGamerDownloader版本: ' + settings['AniGamerDownloader_version']
     err_print(0, '自動模式啟動AniGamerDownloader ' + version_msg, no_sn=True, display=False)
     err_print(0, '工作目錄: ' + working_dir, no_sn=True, display=False)
-
-    if settings['use_proxy']:
-        __init_proxy()
 
     if settings['use_dashboard']:
         run_dashboard()
@@ -1424,9 +1364,6 @@ def cli_main(argv=None):
                     thread_limit = arg.thread_limit
             else:
                 thread_limit = settings['multi-thread']
-
-        if settings['use_proxy']:
-            __init_proxy()
 
         if arg.user_command:
             user_command = True

@@ -1,12 +1,11 @@
 // AniGamerDownloader Dashboard — single-page app (framework-free vanilla ES module).
-// Merges the settings logic (old aniGamerPlus.js) + task monitor polling
-// (old monitor.js) + top-tab switching. All previously-verified behaviour is
-// preserved exactly; the only additions are tab navigation and gating the
-// monitor poll on the Monitor tab being active AND the document being visible.
+// Merges the settings logic (old aniGamerPlus.js) + task polling (old monitor.js)
+// + top-tab switching. Four tabs: 儀表板 / 片單 / 資料庫 / 設定 (使用說明 is a
+// dialog off the top bar). The task poll is gated on the Dashboard tab being
+// active AND the document being visible.
 
 // id_list comes from settings_id_list.js (classic <script> loaded before this module).
 const id_list = window.id_list;
-id_list.push('proxy_protocol', 'proxy_ip', 'proxy_port', 'proxy_user', 'proxy_passwd');
 
 let dataArrays; // user config json
 
@@ -20,56 +19,33 @@ function showUploadStatus(ok) {
 	byId('uploadStatus').showModal();
 }
 
+// Transient bottom-right notice. Used instead of alert() for outcomes the user
+// does not need to acknowledge — an alert costs a second click for information
+// that is already visible in the UI a moment later.
+let toastTimer = null;
+function showToast(message, kind) {
+	const el = byId('toast');
+	if (!el) return;
+	el.textContent = message;
+	el.className = 'toast is-shown' + (kind ? ' is-' + kind : '');
+	clearTimeout(toastTimer);
+	toastTimer = setTimeout(() => { el.className = 'toast'; }, kind === 'error' ? 6000 : 3500);
+}
+
 // ============================================================================
 // SETTINGS (from aniGamerPlus.js — behaviour preserved exactly)
 // ============================================================================
-
-// ---- proxy parsing ----------------------------------------------------------
-
-// Decompose the stored proxy string into protocol/ip/port/user/passwd and write
-// them back onto dataArrays. Keeps the EXACT original regex logic; the protocol
-// is kept LOWERCASE so a stored value round-trips unchanged.
-function parseProxy(proxy) {
-	let proxy_protocol = proxy.replace(/:\/\/.*/i, '');
-	let proxy_ip;
-	let proxy_port;
-	let proxy_user = '';
-	let proxy_passwd = '';
-
-	if (/.*@.*/.test(proxy)) {
-		proxy_user = /:\/\/.*?:/g.exec(proxy)[0].replace(/:(\/\/)?/g, '');
-		proxy_passwd = /:.*@/.exec(proxy)[0].replace(proxy_user, '')
-			.replace(/(:\/\/:)?@?/g, '');
-		proxy = proxy.replace(proxy_user + ':' + proxy_passwd + '@', '');
-	}
-
-	if (proxy.length > 0) {
-		proxy_ip = /:.*:/.exec(proxy)[0].replace(/:(\/\/)?/g, '');
-		proxy_port = /:\d+/.exec(proxy)[0].replace(/:/, '');
-	} else {
-		proxy_ip = '';
-		proxy_port = '';
-	}
-
-	dataArrays.proxy_protocol = proxy_protocol;
-	dataArrays.proxy_ip = proxy_ip;
-	dataArrays.proxy_port = proxy_port;
-	dataArrays.proxy_user = proxy_user;
-	dataArrays.proxy_passwd = proxy_passwd;
-}
 
 // ---- config load / render ---------------------------------------------------
 
 async function loadConfig() {
 	const resp = await fetch('data/config.json');
 	dataArrays = await resp.json();
-	parseProxy(dataArrays.proxy);
 	renderJson();
 }
 
 function renderJson() {
 	for (const id of id_list) {
-		if (id === 'proxy') continue; // proxy settings have been decomposed
 		const el = byId(id);
 		switch (el.type) {
 			case 'text':
@@ -88,6 +64,30 @@ function renderJson() {
 				break;
 		}
 	}
+	renderGroupSummaries();
+}
+
+// One-line recaps shown on the COLLAPSED settings groups, so a closed group
+// still tells you what it currently holds. Derived purely from dataArrays —
+// nothing here is displayed that the config does not actually say.
+function renderGroupSummaries() {
+	const set = (id, text) => { const el = byId(id); if (el) el.textContent = text; };
+
+	set('sum_paths',
+		(dataArrays.bangumi_dir || 'data/bangumi')
+		+ '　・　暫存 ' + (dataArrays.temp_dir || 'data/temp'));
+
+	const nameBits = [];
+	if (dataArrays.add_bangumi_name_to_video_filename) nameBits.push('含番劇名');
+	if (dataArrays.add_resolution_to_video_filename) nameBits.push('含解析度');
+	if (dataArrays.customized_video_filename_prefix) nameBits.push('前綴 ' + dataArrays.customized_video_filename_prefix);
+	if (dataArrays.customized_video_filename_suffix) nameBits.push('後綴 ' + dataArrays.customized_video_filename_suffix);
+	set('sum_filename', nameBits.length ? nameBits.join(' ・ ') : '僅集數，無附加');
+
+	const sysBits = [];
+	sysBits.push(dataArrays.save_logs ? '保留 ' + dataArrays.quantity_of_logs + ' 份日誌' : '不記錄日誌');
+	sysBits.push(dataArrays.check_latest_version ? '啟動時檢查更新' : '不檢查更新');
+	set('sum_system', sysBits.join(' ・ '));
 }
 
 async function reloadSetting() {
@@ -98,7 +98,6 @@ async function reloadSetting() {
 
 async function readSettings() {
 	for (const id of id_list) {
-		if (id === 'proxy') continue; // proxy settings have been decomposed
 		const el = byId(id);
 		switch (el.type) {
 			case 'number':
@@ -115,17 +114,6 @@ async function readSettings() {
 				dataArrays[id] = el.value;
 				break;
 		}
-	}
-
-	// merge proxy config (compute once — the original did this redundantly inside the loop)
-	const ip_port = dataArrays.proxy_ip + ':' + dataArrays.proxy_port;
-	const protocol = dataArrays.proxy_protocol + '://';
-	if ((dataArrays.proxy_user?.length * dataArrays.proxy_passwd?.length) === 0) {
-		// if there is no username/password
-		dataArrays.proxy = protocol + ip_port;
-	} else {
-		// if there is a username/password
-		dataArrays.proxy = protocol + dataArrays.proxy_user + ':' + dataArrays.proxy_passwd + '@' + ip_port;
 	}
 
 	try {
@@ -158,28 +146,25 @@ async function readManualConfig() {
 		return;
 	}
 
-	const sn = link.replace(/(https:\/\/)?ani\.gamer\.com\.tw\/animeVideo\.php\?sn=/i, '');
-	const manualData = {
-		sn,
-		mode: byId('manual_mode').value,
-		resolution: byId('manual_resolution').value,
-		classify: byId('manual_classify').checked,
-		thread: byId('manual_thread_limit').value,
-		danmu: byId('manual_danmu').checked,
-	};
-
-	try {
-		const resp = await fetch('/manualTask', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json; charset=utf-8' },
-			body: JSON.stringify(manualData),
-		});
-		if (!resp.ok) throw new Error('manual task failed');
-		showUploadStatus(true);
-		await reloadSetting();
-	} catch (e) {
-		showUploadStatus(false);
+	const sn = link.replace(/(https:\/\/)?ani\.gamer\.com\.tw\/animeVideo\.php\?sn=/i, '').trim();
+	if (!/^\d+$/.test(sn)) {
+		showToast('看不出 sn：請貼上播放頁網址，或直接填 sn 數字。', 'error');
+		return;
 	}
+
+	// Staged, not started — same as every other download path now.
+	await doEnqueue([{
+		kind: 'manual',
+		sn: Number(sn),
+		title: '單次任務 sn ' + sn + '（' + byId('manual_mode').value + '）',
+		options: {
+			mode: byId('manual_mode').value,
+			resolution: byId('manual_resolution').value,
+			classify: byId('manual_classify').checked,
+			thread: byId('manual_thread_limit').value,
+			danmu: byId('manual_danmu').checked,
+		},
+	}]);
 }
 
 // ---- sn_list ----------------------------------------------------------------
@@ -215,6 +200,8 @@ async function showCookie() {
 	const data = await resp.json();
 	byId('cookie_masked').value = data.masked || '（尚未設定）';
 	byId('cookie_text').value = '';
+	const sum = byId('sum_cookie');
+	if (sum) sum.textContent = data.masked ? '已設定 cookie' : '尚未設定 cookie';
 }
 
 async function postCookie() {
@@ -266,16 +253,18 @@ function canPoll() {
 	return monitorActive && !document.hidden;
 }
 
-// Build a task card from the contract markup. sn comes from the data keys.
-function createCard(sn, info) {
+// Build a task card. `waiting` cards are scheduled-but-not-started: same row,
+// no progress bar (there is no progress to show yet).
+function createCard(sn, info, waiting) {
 	const card = document.createElement('div');
-	card.className = 'task-card';
+	card.className = 'task-card' + (waiting ? ' is-waiting' : '');
 	card.id = 'task' + sn;
+	card.dataset.mode = waiting ? 'waiting' : 'active';
 
 	const header = document.createElement('div');
 	header.className = 'task-card-header';
 	header.id = 'header' + sn;
-	header.textContent = info.filename;
+	header.textContent = waiting ? waitingTitle(sn, info) : info.filename;
 
 	const body = document.createElement('div');
 	body.className = 'task-card-body';
@@ -283,28 +272,46 @@ function createCard(sn, info) {
 	const status = document.createElement('div');
 	status.className = 'task-status';
 	status.id = 'status' + sn;
-	status.textContent = info.status;
+	status.textContent = waiting ? waitingStatus(info) : info.status;
 
-	const progress = document.createElement('div');
-	progress.className = 'progress';
-
-	const bar = document.createElement('div');
-	bar.className = 'progress-bar';
-	bar.id = 'bar' + sn;
-
-	const text = document.createElement('span');
-	text.className = 'progress-text';
-	text.id = 'ptext' + sn;
-
-	progress.appendChild(bar);
-	progress.appendChild(text);
 	body.appendChild(status);
-	body.appendChild(progress);
+
+	if (!waiting) {
+		const progress = document.createElement('div');
+		progress.className = 'progress';
+
+		const bar = document.createElement('div');
+		bar.className = 'progress-bar';
+		bar.id = 'bar' + sn;
+
+		const text = document.createElement('span');
+		text.className = 'progress-text';
+		text.id = 'ptext' + sn;
+
+		progress.appendChild(bar);
+		progress.appendChild(text);
+		body.appendChild(progress);
+		setProgress(bar, text, info.rate);
+	}
+
 	card.appendChild(header);
 	card.appendChild(body);
-
-	setProgress(bar, text, info.rate);
 	return card;
+}
+
+// Pending entries carry {name, episode} rather than a filename.
+function waitingTitle(sn, info) {
+	const title = info.name ? '《' + info.name + '》' : 'sn=' + sn;
+	return title + (info.episode ? ' 第 ' + info.episode + ' 集' : '');
+}
+
+function waitingStatus(info) {
+	// queue-dispatched items carry their own reason (they may be parsing, not
+	// just queued); for the daemon's own scheduled tasks the concurrency cap IS
+	// the reason, so name it when we know it
+	if (info && info.status) return info.status;
+	const limit = dataArrays && dataArrays['multi-thread'];
+	return limit ? '等待中（併發上限 ' + limit + '）' : '等待中';
 }
 
 function setProgress(bar, text, rate) {
@@ -316,8 +323,118 @@ function setProgress(bar, text, rate) {
 // Poll payload is { active: {sn:{rate,filename,status}}, pending: {sn:{name,episode}} }.
 function renderTasks(payload) {
 	payload = payload && typeof payload === 'object' ? payload : {};
-	renderActive(payload.active || {});
-	renderPending(payload.pending || {});
+	renderWorkList(payload.active || {}, payload.pending || {});
+	renderQueue(payload.queue || []);
+}
+
+// ---- manual download queue ---------------------------------------------------
+// Items staged by the operator (資料庫 / 片單) that have NOT started. Distinct
+// from `pending`, which the daemon already scheduled and which starts on its own
+// as soon as a concurrency slot frees up.
+
+let queueSignature = '';   // skip the DOM rebuild while the queue is unchanged
+
+function renderQueue(items) {
+	const section = byId('queue_section');
+	if (!section) return;
+	items = Array.isArray(items) ? items : [];
+
+	byId('stat_queue').textContent = String(items.length);
+	byId('queue_count').textContent = items.length + ' 項';
+	section.style.display = items.length === 0 ? 'none' : '';
+
+	// path is part of the signature: re-adding an item keeps its id but can change
+	// where it lands, and a stale path on screen would be worse than a rebuild.
+	const signature = items.map((i) => i.id + '@' + (i.path || '')).join('|');
+	if (signature === queueSignature) return;
+	queueSignature = signature;
+
+	const list = byId('queue_list');
+	list.textContent = '';
+	items.forEach((item) => {
+		const row = document.createElement('div');
+		row.className = 'queue-row';
+
+		const main = document.createElement('div');
+		main.className = 'queue-main';
+
+		const name = document.createElement('span');
+		name.className = 'queue-name';
+		name.textContent = item.title;
+		main.appendChild(name);
+
+		if (item.path) {
+			const path = document.createElement('span');
+			path.className = 'queue-path';
+			path.title = item.path;
+			path.textContent = item.path;
+			// only a db row that already finished once knows the real filename;
+			// everything else can only promise the destination folder
+			if (!item.path_exact) {
+				const hint = document.createElement('span');
+				hint.className = 'queue-path-hint';
+				hint.textContent = '（資料夾；檔名於下載時決定）';
+				path.appendChild(hint);
+			}
+			main.appendChild(path);
+		}
+
+		const meta = document.createElement('span');
+		meta.className = 'queue-meta';
+		meta.textContent = 'sn ' + item.sn + ' · ' + item.added;
+
+		const acts = document.createElement('span');
+		acts.className = 'queue-row-actions';
+		acts.appendChild(makeBtn('開始', 'btn-primary btn-sm', () => startQueue([item.id])));
+		acts.appendChild(makeBtn('移除', 'btn-danger btn-sm', () => removeQueue([item.id])));
+
+		row.appendChild(main);
+		row.appendChild(meta);
+		row.appendChild(acts);
+		list.appendChild(row);
+	});
+}
+
+async function startQueue(ids) {
+	try {
+		const r = await postJson('/queue/start', { ids: ids || [] });
+		renderQueue(r.items);
+		if (r.started) showToast('已開始下載 ' + r.started + ' 項。');
+	} catch (e) {
+		showToast('開始下載失敗：' + e.message, 'error');
+	}
+}
+
+async function removeQueue(ids) {
+	try {
+		const r = await postJson('/queue/remove', { ids });
+		renderQueue(r.items);
+	} catch (e) {
+		showToast('移除失敗：' + e.message, 'error');
+	}
+}
+
+async function clearQueue() {
+	const n = Number(byId('stat_queue').textContent) || 0;
+	if (n > 1 && !confirm('確定清空下載佇列（' + n + ' 項）？不會影響已經在下載的任務。')) return;
+	try {
+		const r = await postJson('/queue/clear', {});
+		renderQueue(r.items);
+		showToast('已清空下載佇列。');
+	} catch (e) {
+		showToast('清空失敗：' + e.message, 'error');
+	}
+}
+
+// The queue also changes from other tabs, so refresh it on demand (the 1s poll
+// only runs while the dashboard is open).
+async function refreshQueue() {
+	try {
+		const resp = await fetch('data/queue');
+		if (!resp.ok) return;
+		const data = await resp.json();
+		renderQueue(data.items || []);
+	} catch (e) { /* dashboard poll will catch up */ }
 }
 
 // Live log: { file, exists, lines: [...] } from data/log_tail. Re-render only on
@@ -340,62 +457,58 @@ function renderLog(payload) {
 }
 
 // Pending list: scheduled tasks still waiting for a concurrency slot (not yet downloading, no progress bar).
-function renderPending(data) {
-	const section = byId('pending_section');
-	const list = byId('pending_list');
-	const sns = data && typeof data === 'object' ? Object.keys(data) : [];
-
-	byId('pending_count').textContent = String(sns.length);
-	section.style.display = sns.length === 0 ? 'none' : '';
-
-	list.textContent = ''; // small list, changes rarely — simple rebuild each poll
-	sns.forEach(function (sn) {
-		const info = data[sn] || {};
-		const row = document.createElement('div');
-		row.className = 'pending-row';
-
-		const name = document.createElement('span');
-		name.className = 'pending-name';
-		const title = info.name ? '《' + info.name + '》' : 'sn=' + sn;
-		name.textContent = title + (info.episode ? ' 第 ' + info.episode + ' 集' : '');
-
-		const tag = document.createElement('span');
-		tag.className = 'badge st-suspect';
-		tag.textContent = '等待中';
-
-		row.appendChild(name);
-		row.appendChild(tag);
-		list.appendChild(row);
-	});
-}
-
-function renderActive(data) {
-	const noTask = byId('no_task');
+// ONE list for everything in flight: downloading tasks first (with a progress
+// bar), then scheduled-but-waiting ones. They used to be two separate sections,
+// which read as two unrelated queues when they are really the same pipeline —
+// only 佇列 (staged by the operator, needs a click) is genuinely different.
+// The server dual-writes so active ∩ pending = ∅; the filter below keeps a
+// transient overlap from ever rendering the same sn twice.
+function renderWorkList(active, pending) {
 	const panel = byId('task_info_panel');
-	const sns = data && typeof data === 'object' ? Object.keys(data) : [];
+	active = active && typeof active === 'object' ? active : {};
+	pending = pending && typeof pending === 'object' ? pending : {};
 
-	noTask.style.display = sns.length === 0 ? '' : 'none';
+	const activeSns = Object.keys(active);
+	const pendingSns = Object.keys(pending).filter((sn) => !(sn in active));
 
-	// add or update a card per running task
-	sns.forEach(function (sn) {
-		const info = data[sn];
-		const existing = byId('task' + sn);
-		if (existing) {
-			byId('status' + sn).textContent = info.status;
-			byId('header' + sn).textContent = info.filename;
-			setProgress(byId('bar' + sn), byId('ptext' + sn), info.rate);
-		} else {
-			// prepend so newest task shows on top (matches original behaviour)
-			panel.insertBefore(createCard(sn, info), panel.firstChild);
+	byId('stat_active').textContent = String(activeSns.length);
+	byId('stat_pending').textContent = String(pendingSns.length);
+	byId('no_task').style.display = (activeSns.length + pendingSns.length) === 0 ? '' : 'none';
+
+	const wanted = [];
+	activeSns.forEach((sn) => wanted.push({ sn, info: active[sn], waiting: false }));
+	pendingSns.forEach((sn) => wanted.push({ sn, info: pending[sn] || {}, waiting: true }));
+
+	wanted.forEach(function (item) {
+		const mode = item.waiting ? 'waiting' : 'active';
+		let card = byId('task' + item.sn);
+		// a card whose mode changed (waiting -> downloading) is rebuilt, since a
+		// waiting card has no progress bar to update
+		if (card && card.dataset.mode !== mode) {
+			card.remove();
+			card = null;
 		}
+		if (card) {
+			if (item.waiting) {
+				byId('header' + item.sn).textContent = waitingTitle(item.sn, item.info);
+				byId('status' + item.sn).textContent = waitingStatus(item.info);
+			} else {
+				byId('header' + item.sn).textContent = item.info.filename;
+				byId('status' + item.sn).textContent = item.info.status;
+				setProgress(byId('bar' + item.sn), byId('ptext' + item.sn), item.info.rate);
+			}
+		} else {
+			card = createCard(item.sn, item.info, item.waiting);
+		}
+		// appendChild moves an existing node, so this also fixes the order
+		// (downloading above waiting) without recreating anything
+		panel.appendChild(card);
 	});
 
-	// remove cards whose task finished and was dropped from the progress dict
+	// drop cards for tasks that finished and left both dicts
+	const keep = new Set(wanted.map((i) => 'task' + i.sn));
 	Array.prototype.slice.call(panel.children).forEach(function (child) {
-		const sn = (child.id || '').replace('task', '');
-		if (sn && sns.indexOf(sn) === -1) {
-			child.remove();
-		}
+		if (!keep.has(child.id)) child.remove();
 	});
 }
 
@@ -524,7 +637,7 @@ async function loadInventory() {
 	}
 }
 
-function makeRow(ep) {
+function makeRow(ep, animeName) {
 	const tr = document.createElement('tr');
 
 	const tdEp = document.createElement('td');
@@ -549,7 +662,10 @@ function makeRow(ep) {
 
 	const tdAct = document.createElement('td');
 	tdAct.className = 'inv-row-actions';
-	tdAct.appendChild(makeBtn('立即下載', 'btn-secondary btn-sm', () => doRedownload([ep.sn])));
+	tdAct.appendChild(makeBtn('加入佇列', 'btn-secondary btn-sm', () => doEnqueue([{
+		kind: 'db', sn: ep.sn, title: animeName + ' 第 ' + ep.episode + ' 集',
+		path: ep.path || '',   // empty -> the server fills in the destination folder
+	}])));
 	tdAct.appendChild(makeBtn('重置', 'btn-dark btn-sm', () => doReset([ep.sn])));
 	tdAct.appendChild(makeBtn('移除紀錄', 'btn-danger btn-sm', () => doDelete([ep.sn], '第 ' + ep.episode + ' 集')));
 
@@ -607,7 +723,13 @@ function renderInventory() {
 			actions.appendChild(makeBtn('整部驗證', 'btn-secondary btn-sm', (ev) => { ev.preventDefault(); doVerify(existingSns, ev.currentTarget); }));
 		}
 		actions.appendChild(makeBtn('整部重置', 'btn-dark btn-sm', (ev) => { ev.preventDefault(); doReset(allSns); }));
-		actions.appendChild(makeBtn('整部立即下載', 'btn-secondary btn-sm', (ev) => { ev.preventDefault(); doRedownload(allSns); }));
+		actions.appendChild(makeBtn('整部加入佇列', 'btn-secondary btn-sm', (ev) => {
+			ev.preventDefault();
+			doEnqueue(series.episodes.map((e) => ({
+				kind: 'db', sn: e.sn, title: series.anime_name + ' 第 ' + e.episode + ' 集',
+				path: e.path || '',
+			})));
+		}));
 		const missingSns = series.episodes.filter((e) => e.state === 'missing').map((e) => e.sn);
 		if (missingSns.length) {
 			actions.appendChild(makeBtn('移除缺檔 (' + missingSns.length + ')', 'btn-danger btn-sm', (ev) => { ev.preventDefault(); doDelete(missingSns, '《' + series.anime_name + '》的缺檔紀錄'); }));
@@ -622,7 +744,7 @@ function renderInventory() {
 		const table = document.createElement('table');
 		table.className = 'inv-table';
 		const tbody = document.createElement('tbody');
-		series.episodes.forEach((ep) => tbody.appendChild(makeRow(ep)));
+		series.episodes.forEach((ep) => tbody.appendChild(makeRow(ep, series.anime_name)));
 		table.appendChild(tbody);
 		group.appendChild(table);
 		container.appendChild(group);
@@ -644,14 +766,18 @@ async function doReset(sns) {
 	}
 }
 
-async function doRedownload(sns) {
-	if (!sns.length) return;
-	if (!confirm('確定立即重新下載這 ' + sns.length + ' 集？可到「監控」頁查看進度。')) return;
+// Stage downloads instead of starting them. Nothing here touches the network:
+// the items sit on the dashboard until the operator presses 開始. No confirm
+// prompt — queueing is free and undoable (移除), so asking would be noise.
+async function doEnqueue(entries) {
+	if (!entries.length) return;
 	try {
-		await postJson('/db_redownload', { sns });
-		alert('已開始下載 ' + sns.length + ' 集，請到「監控」頁查看進度。');
+		const r = await postJson('/queue/add', { items: entries });
+		renderQueue(r.items);
+		const replaced = r.replaced ? '（其中 ' + r.replaced + ' 項已在佇列中，已更新）' : '';
+		showToast('已加入下載佇列 ' + r.added + ' 項' + replaced + '，到「儀表板」按開始。');
 	} catch (e) {
-		alert('立即下載失敗：' + e.message);
+		showToast('加入佇列失敗：' + e.message, 'error');
 	}
 }
 
@@ -1035,14 +1161,25 @@ async function toggleBatch() {
 // TOP-TAB SWITCHING
 // ============================================================================
 
-const TABS = ['settings', 'monitor', 'snlist', 'inventory', 'manual', 'help'];
-const DEFAULT_TAB = 'settings';
+const TABS = ['dashboard', 'queue', 'library', 'settings'];
+const DEFAULT_TAB = 'dashboard';
 
-// Map a location (path "/monitor" or hash "#monitor") onto a known tab name.
+// Hashes from the previous six-tab layout, so old bookmarks still land somewhere
+// sensible instead of silently falling back to the default tab.
+const TAB_ALIASES = {
+	monitor: 'dashboard',
+	snlist: 'queue',
+	manual: 'queue',
+	inventory: 'library',
+	help: 'dashboard',   // 使用說明 is now a dialog, not a tab
+};
+
+// Map a location (path "/monitor" or hash "#dashboard") onto a known tab name.
 function tabFromLocation() {
 	const hash = (location.hash || '').replace(/^#/, '');
 	if (TABS.includes(hash)) return hash;
-	if (/\/monitor\/?$/.test(location.pathname)) return 'monitor';
+	if (TAB_ALIASES[hash]) return TAB_ALIASES[hash];
+	if (/\/monitor\/?$/.test(location.pathname)) return 'dashboard';
 	return DEFAULT_TAB;
 }
 
@@ -1061,17 +1198,17 @@ function activateTab(name) {
 		button.setAttribute('aria-selected', active ? 'true' : 'false');
 	}
 
-	// gate the monitor poll on the Monitor tab being active
-	monitorActive = tab === 'monitor';
+	// gate the task poll on the Dashboard tab being active
+	monitorActive = tab === 'dashboard';
 	if (monitorActive) {
-		refreshBatchStatus(); // sync the pause/resume button when entering Monitor
+		refreshBatchStatus(); // sync the pause/resume button when entering Dashboard
 		startPolling();
 	} else {
 		stopPolling();
 	}
 
-	// load the DB inventory when entering the Database tab (lazy; refreshable via button)
-	if (tab === 'inventory') {
+	// load the DB inventory when entering the Library tab (lazy; refreshable via button)
+	if (tab === 'library') {
 		loadInventory();
 	}
 
@@ -1120,6 +1257,13 @@ document.addEventListener('DOMContentLoaded', () => {
 	byId('accountCheckBtn').addEventListener('click', runAccountCheck);
 	byId('shutdownBtn').addEventListener('click', shutdownApp);
 
+	// 使用說明 — a dialog off the top bar rather than its own tab
+	byId('helpBtn').addEventListener('click', () => byId('helpDialog').showModal());
+
+	// download queue (dashboard)
+	byId('queueStartAllBtn').addEventListener('click', () => startQueue([]));
+	byId('queueClearBtn').addEventListener('click', clearQueue);
+
 	// tab buttons — selectTab assigns location.hash so back/forward works
 	for (const t of TABS) {
 		byId('tab-' + t).addEventListener('click', () => selectTab(t));
@@ -1134,4 +1278,5 @@ document.addEventListener('DOMContentLoaded', () => {
 	showSnList();
 	showCookie();
 	refreshAccountState();
+	refreshQueue();   // the 1s poll only runs on the dashboard; seed it on any tab
 });
