@@ -52,6 +52,7 @@ from core.logging import err_print
 from app import daemon
 from app.daemon import __cui as cui
 from app.daemon import read_db_all, reset_db_status, redownload, cookies
+from app.daemon import delete_db_rows, sns_still_tracked
 
 # Shared runtime state (progress / pending / flags) — the SAME object the daemon
 # mutates. Read it through `daemon.state` so both layers stay coherent.
@@ -442,6 +443,89 @@ def doctor_route():
     except Exception as e:
         result = {'sn': sn, 'ok': False, 'steps': [], 'first_broken': None,
                   'diag': None, 'error': '健檢執行失敗：' + str(e)}
+    return jsonify(result)
+
+
+@app.route('/data/cookie_state', methods=['GET'])
+def cookie_state():
+    # Passive login indicator: does cookie.txt still LOOK like a logged-in cookie?
+    # Zero network traffic. This cannot prove the server still accepts the account
+    # and says nothing about VIP — POST /account_check does that.
+    keys = cookies.key_names()
+    path = cookies.cookie_path
+    invalid_path = path.replace('cookie.txt', 'invalid_cookie.txt')
+    mtime = None
+    if os.path.exists(path):
+        try:
+            mtime = datetime.fromtimestamp(os.path.getmtime(path)).strftime('%Y-%m-%d %H:%M:%S')
+        except OSError:
+            mtime = None
+    return jsonify({
+        'logged_in': cookies.looks_logged_in(),
+        'key_count': len(keys),
+        'mtime': mtime,
+        'has_invalid_backup': os.path.exists(invalid_path),
+    })
+
+
+@app.route('/data/db_missing_preview', methods=['GET'])
+def db_missing_preview():
+    # Read-only preview for the global "purge missing records" button: every row
+    # recorded as downloaded (status==1) whose file is no longer where the db says
+    # it is. Deletes nothing — the UI shows this first and asks for confirmation.
+    groups = {}
+    all_sns = []
+    for r in read_db_all():
+        ep = _episode_state(r)
+        if ep['state'] != 'missing':
+            continue
+        name = r['anime_name'] or '(未分類)'
+        groups.setdefault(name, []).append(ep['sn'])
+        all_sns.append(ep['sn'])
+    tracked, unresolved = sns_still_tracked(all_sns)
+    series = [{'anime_name': n, 'count': len(s), 'sns': sorted(s)}
+              for n, s in sorted(groups.items())]
+    return jsonify({'total': len(all_sns), 'sns': sorted(all_sns), 'series': series,
+                    'in_sn_list': tracked, 'unresolved_sn_list': unresolved})
+
+
+@app.route('/db_delete', methods=['POST'])
+def db_delete():
+    # Remove records from the db entirely. NEVER touches files on disk.
+    # Guard: if any sn is still tracked by sn_list the next scan would re-insert
+    # and re-download it, so refuse with 409 until the caller re-sends with
+    # {"confirmed": true} after showing the user which ones those are.
+    data = json.loads(request.get_data(as_text=True))
+    sns = [int(s) for s in data.get('sns', [])]
+    if not sns:
+        return jsonify({'status': 200, 'count': 0})
+    tracked, unresolved = sns_still_tracked(sns)
+    if (tracked or unresolved) and not data.get('confirmed'):
+        return jsonify({'status': 409, 'in_sn_list': tracked,
+                        'unresolved_sn_list': unresolved, 'count': 0})
+    deleted = delete_db_rows(sns)
+    err_print(0, 'Dashboard', '透過 Web 移除了 ' + str(deleted) + ' 筆資料庫紀錄(未刪除任何檔案)',
+              no_sn=True, status=2)
+    return jsonify({'status': 200, 'count': deleted})
+
+
+@app.route('/account_check', methods=['POST'])
+def account_check_route():
+    # On-demand account health check: is this cookie still accepted, and is it VIP?
+    # Fires ONE real request pair (deviceid + token.php) to 動畫瘋 — never scheduled.
+    # Works in app-only mode too (no daemon gate).
+    body = request.get_json(silent=True) or {}
+    sn = body.get('sn')
+    if sn in ('', None):
+        sn = None
+    err_print(0, 'Dashboard', '透過 Web 觸發帳號健檢', no_sn=True, status=2)
+    try:
+        result = daemon.account_check(sn)
+    except Exception as e:
+        result = {'sn': sn, 'ok': False, 'logged_in': False,
+                  'cookie_looks_logged_in': cookies.looks_logged_in(),
+                  'guest_session': True, 'vip': None, 'detail': '',
+                  'error': '健檢執行失敗：' + str(e)}
     return jsonify(result)
 
 

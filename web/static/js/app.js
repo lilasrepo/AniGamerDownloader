@@ -550,6 +550,7 @@ function makeRow(ep) {
 	tdAct.className = 'inv-row-actions';
 	tdAct.appendChild(makeBtn('立即下載', 'btn-secondary btn-sm', () => doRedownload([ep.sn])));
 	tdAct.appendChild(makeBtn('重置', 'btn-dark btn-sm', () => doReset([ep.sn])));
+	tdAct.appendChild(makeBtn('移除紀錄', 'btn-danger btn-sm', () => doDelete([ep.sn], '第 ' + ep.episode + ' 集')));
 
 	tr.appendChild(tdEp);
 	tr.appendChild(tdRes);
@@ -605,6 +606,11 @@ function renderInventory() {
 		}
 		actions.appendChild(makeBtn('整部重置', 'btn-dark btn-sm', (ev) => { ev.preventDefault(); doReset(allSns); }));
 		actions.appendChild(makeBtn('整部立即下載', 'btn-secondary btn-sm', (ev) => { ev.preventDefault(); doRedownload(allSns); }));
+		const missingSns = series.episodes.filter((e) => e.state === 'missing').map((e) => e.sn);
+		if (missingSns.length) {
+			actions.appendChild(makeBtn('移除缺檔 (' + missingSns.length + ')', 'btn-danger btn-sm', (ev) => { ev.preventDefault(); doDelete(missingSns, '《' + series.anime_name + '》的缺檔紀錄'); }));
+		}
+		actions.appendChild(makeBtn('整部移除', 'btn-danger btn-sm', (ev) => { ev.preventDefault(); doDelete(allSns, '《' + series.anime_name + '》全部 ' + allSns.length + ' 集'); }));
 
 		summary.appendChild(name);
 		summary.appendChild(meta);
@@ -643,6 +649,82 @@ async function doRedownload(sns) {
 		alert('已開始下載 ' + sns.length + ' 集，請到「監控」頁查看進度。');
 	} catch (e) {
 		alert('立即下載失敗：' + e.message);
+	}
+}
+
+// Remove rows from the database. NEVER deletes files on disk.
+// The server refuses with status 409 when any sn is still tracked by sn_list
+// (the next scan would re-insert and re-download it); we then show exactly which
+// ones and re-send with confirmed:true only if the user still wants it.
+// `label` describes the target in the confirm prompt. Returns true if rows were deleted.
+async function doDelete(sns, label) {
+	if (!sns.length) return false;
+	if (!confirm('確定從資料庫移除 ' + label + '（共 ' + sns.length + ' 筆紀錄）？\n\n只會刪除資料庫紀錄，硬碟上的檔案完全不會被動到。')) return false;
+	try {
+		let result = await postJson('/db_delete', { sns });
+		if (result.status === 409) {
+			if (!confirm(snListWarning(result) + '\n\n仍要移除嗎？')) return false;
+			result = await postJson('/db_delete', { sns, confirmed: true });
+		}
+		await loadInventory();
+		return (result.count || 0) > 0;
+	} catch (e) {
+		alert('移除失敗：' + e.message);
+		return false;
+	}
+}
+
+// Build the "these will come back" warning from a 409 / preview payload.
+function snListWarning(info) {
+	const lines = [];
+	if (info.in_sn_list && info.in_sn_list.length) {
+		lines.push('⚠ 其中 ' + info.in_sn_list.length + ' 筆仍在下載清單 (sn_list) 的追蹤範圍內。');
+		lines.push('移除後，下一次自動檢查會重新加入並重新下載這些集數。');
+		lines.push('若不想重抓，請先到「下載清單」分頁把該部動畫的那一行移除。');
+	}
+	if (info.unresolved_sn_list && info.unresolved_sn_list.length) {
+		if (lines.length) lines.push('');
+		lines.push('另有 ' + info.unresolved_sn_list.length + ' 個下載清單項目無法對應到資料庫紀錄 (sn: '
+			+ info.unresolved_sn_list.join(', ') + ')，無法判斷是否會重抓，請自行確認。');
+	}
+	return lines.join('\n');
+}
+
+// Global two-step purge: preview first (deletes nothing), confirm second.
+async function purgeMissing(btn) {
+	btn = btn || byId('invPurgeBtn');
+	const orig = btn.textContent;
+	btn.disabled = true;
+	btn.textContent = '掃描中…';
+	let info;
+	try {
+		const resp = await fetch('/data/db_missing_preview');
+		if (!resp.ok) throw new Error('HTTP ' + resp.status);
+		info = await resp.json();
+	} catch (e) {
+		alert('掃描失敗：' + e.message);
+		return;
+	} finally {
+		btn.disabled = false;
+		btn.textContent = orig;
+	}
+
+	if (!info.total) { alert('沒有任何「缺檔」紀錄，不需要清理。'); return; }
+
+	const lines = ['將從資料庫移除 ' + info.total + ' 筆「缺檔」紀錄（硬碟檔案不會被動到）：', ''];
+	info.series.forEach((s) => lines.push('  ・《' + s.anime_name + '》 ' + s.count + ' 集'));
+	const warn = snListWarning(info);
+	if (warn) { lines.push(''); lines.push(warn); }
+	lines.push('');
+	lines.push('確定要移除嗎？');
+	if (!confirm(lines.join('\n'))) return;
+
+	try {
+		const result = await postJson('/db_delete', { sns: info.sns, confirmed: true });
+		await loadInventory();
+		alert('已移除 ' + (result.count || 0) + ' 筆資料庫紀錄。');
+	} catch (e) {
+		alert('移除失敗：' + e.message);
 	}
 }
 
@@ -746,6 +828,148 @@ async function runDoctor() {
 		out.textContent = formatDoctor(r);
 	} catch (e) {
 		out.textContent = '健檢失敗：' + e.message;
+	} finally {
+		btn.disabled = false;
+		btn.textContent = prevText;
+	}
+}
+
+// ---- in-app incognito login (desktop window only) ---------------------------
+//
+// Only the pywebview desktop shell exposes window.pywebview.api (see
+// shells/desktop.py LoginApi). In a browser or under Docker it is absent, so the
+// whole box stays hidden and the paste editor below remains the only path.
+// pywebview injects the bridge asynchronously, hence the pywebviewready listener
+// AND the immediate check — whichever happens first wins.
+
+function hasPywebview() {
+	return !!(window.pywebview && window.pywebview.api && window.pywebview.api.open_login);
+}
+
+function revealLoginBox() {
+	const box = byId('login_window_box');
+	if (box && hasPywebview()) box.hidden = false;
+}
+
+function setLoginStatus(text, kind) {
+	const el = byId('login_status');
+	if (!el) return;
+	el.textContent = text || '';
+	el.className = 'login-status' + (kind ? ' is-' + kind : '');
+}
+
+// Shared tail for both entry points: report, then resync everything the new
+// cookie affects — masked value, passive badge, and a real server-side check.
+async function afterLoginResult(result) {
+	if (!result || !result.ok) {
+		setLoginStatus((result && result.error) || '擷取失敗', 'fail');
+		return;
+	}
+	setLoginStatus('已擷取 ' + result.keys.length + ' 個 cookie 並寫入，正在驗證帳號…', 'ok');
+	await showCookie();
+	await refreshAccountState();
+	await accountCheckNow();
+	setLoginStatus('已擷取 ' + result.keys.length + ' 個 cookie 並寫入。帳號狀態見「監控」分頁。', 'ok');
+}
+
+async function openLoginWindow() {
+	const btn = byId('loginWindowBtn');
+	const capBtn = byId('loginCaptureBtn');
+	const orig = btn.textContent;
+	btn.disabled = true;
+	btn.textContent = '等待登入…';
+	capBtn.disabled = false;
+	setLoginStatus('已開啟登入視窗，請在該視窗完成登入（最多等待 5 分鐘）。', '');
+	try {
+		await afterLoginResult(await window.pywebview.api.open_login());
+	} catch (e) {
+		setLoginStatus('登入視窗發生錯誤：' + (e && e.message ? e.message : e), 'fail');
+	} finally {
+		btn.disabled = false;
+		btn.textContent = orig;
+		capBtn.disabled = true;
+	}
+}
+
+async function captureLoginNow() {
+	const capBtn = byId('loginCaptureBtn');
+	capBtn.disabled = true;
+	try {
+		await afterLoginResult(await window.pywebview.api.capture_now());
+	} catch (e) {
+		setLoginStatus('擷取發生錯誤：' + (e && e.message ? e.message : e), 'fail');
+	}
+}
+
+// ---- account / login state --------------------------------------------------
+
+// Paint the status badge. `net` is the /account_check result when we have one;
+// without it we only know what cookie.txt looks like on disk (no network).
+function applyAccountState(passive, net) {
+	const badge = byId('account_badge');
+	const detail = byId('account_detail');
+	if (net) {
+		if (net.logged_in && net.vip) {
+			badge.textContent = '已登入 · VIP';
+			badge.className = 'badge st-ok';
+		} else if (net.logged_in) {
+			badge.textContent = '已登入 · 非 VIP';
+			badge.className = 'badge st-suspect';
+		} else {
+			badge.textContent = '未登入';
+			badge.className = 'badge st-missing';
+		}
+		detail.textContent = net.error ? (net.detail ? net.detail + '（' + net.error + '）' : net.error)
+			: (net.detail || '');
+		return;
+	}
+	if (!passive) { badge.textContent = '未知'; badge.className = 'badge'; detail.textContent = ''; return; }
+	if (passive.logged_in) {
+		badge.textContent = 'cookie 已載入';
+		badge.className = 'badge st-ok';
+		detail.textContent = (passive.mtime ? '更新於 ' + passive.mtime + ' · ' : '')
+			+ '尚未向伺服器確認，按「帳號健檢」可查 VIP 狀態';
+	} else {
+		badge.textContent = '遊客 cookie';
+		badge.className = 'badge st-missing';
+		detail.textContent = '目前不是登入狀態，只能下載非 VIP 畫質。請到「設定」分頁更新 cookie。'
+			+ (passive.has_invalid_backup ? '（舊 cookie 已被標記失效，存為 invalid_cookie.txt）' : '');
+	}
+}
+
+async function refreshAccountState() {
+	try {
+		const resp = await fetch('/data/cookie_state');
+		if (!resp.ok) throw new Error('HTTP ' + resp.status);
+		applyAccountState(await resp.json(), null);
+	} catch (e) {
+		applyAccountState(null, null);
+	}
+}
+
+async function runAccountCheck() {
+	if (!confirm('帳號健檢會對動畫瘋發出一次真實請求（等同一次手動查詢），確定執行？')) return;
+	await accountCheckNow();
+}
+
+// The check itself, without the confirmation prompt — the login flow calls this
+// directly, since the user already opted in by logging in.
+async function accountCheckNow() {
+	const btn = byId('accountCheckBtn');
+	const snRaw = byId('accountCheckSn').value.trim();
+	const prevText = btn.textContent;
+	btn.disabled = true;
+	btn.textContent = '檢查中…';
+	byId('account_badge').textContent = '檢查中…';
+	byId('account_badge').className = 'badge';
+	byId('account_detail').textContent = '';
+	try {
+		const r = await postJson('/account_check', snRaw ? { sn: snRaw } : {});
+		applyAccountState(null, r);
+	} catch (e) {
+		byId('account_badge').textContent = '檢查失敗';
+		byId('account_badge').className = 'badge st-missing';
+		byId('account_detail').textContent = e.message;
 	} finally {
 		btn.disabled = false;
 		btn.textContent = prevText;
@@ -859,13 +1083,19 @@ document.addEventListener('DOMContentLoaded', () => {
 	// cookie editor (account Cookie) actions
 	byId('cookieSubmit').addEventListener('click', postCookie);
 	byId('cookieReloadBtn').addEventListener('click', showCookie);
+	byId('loginWindowBtn').addEventListener('click', openLoginWindow);
+	byId('loginCaptureBtn').addEventListener('click', captureLoginNow);
+	window.addEventListener('pywebviewready', revealLoginBox);
+	revealLoginBox();  // in case the bridge landed before this listener
 
 	// inventory (Database) + batch pause (Monitor) actions
 	byId('invRefreshBtn').addEventListener('click', loadInventory);
 	byId('invVerifyBtn').addEventListener('click', () => doVerify());
+	byId('invPurgeBtn').addEventListener('click', (ev) => purgeMissing(ev.currentTarget));
 	byId('batchToggleBtn').addEventListener('click', toggleBatch);
 	byId('checkNowBtn').addEventListener('click', checkNow);
 	byId('doctorBtn').addEventListener('click', runDoctor);
+	byId('accountCheckBtn').addEventListener('click', runAccountCheck);
 	byId('shutdownBtn').addEventListener('click', shutdownApp);
 
 	// tab buttons — selectTab assigns location.hash so back/forward works
@@ -881,4 +1111,5 @@ document.addEventListener('DOMContentLoaded', () => {
 	loadConfig();
 	showSnList();
 	showCookie();
+	refreshAccountState();
 });

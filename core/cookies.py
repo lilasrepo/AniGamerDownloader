@@ -88,6 +88,35 @@ class CookieStore:
         self.cookie = {}
         return self.cookie
 
+    LOGIN_KEYS = ('BAHAID', 'BAHARUNE')
+
+    def key_names(self):
+        """Cookie key names straight off disk, bypassing the ``read()`` cache.
+
+        Status callers must not use ``read()``: it caches into a dict shared with
+        in-flight download threads, so it can hand back a stale view, and busting
+        the cache from a status path would race those threads. Key names are
+        ASCII, so no transcoding/quoting handling is needed here.
+        """
+        path = self.cookie_path
+        if not os.path.exists(path) or os.path.getsize(path) == 0:
+            return []
+        try:
+            with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                for line in f:
+                    if line.isspace():
+                        continue
+                    return [p.split('=', 1)[0].strip() for p in line.strip().split(';') if p.strip()]
+        except OSError:
+            return []
+        return []
+
+    def looks_logged_in(self):
+        # Does cookie.txt still LOOK like a logged-in cookie? Cannot prove the
+        # server still accepts it — AnimeDownloader.check_account() does that.
+        keys = self.key_names()
+        return any(k in keys for k in self.LOGIN_KEYS)
+
     def invalidate(self):
         # when the cookie is invalid, rename it to avoid repeatedly trying the invalid cookie
         cookie_path = self.cookie_path

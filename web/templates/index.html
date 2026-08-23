@@ -66,6 +66,10 @@
 							<span class="switch-control"><input id="use_mobile_api" type="checkbox"><span class="slider"></span></span>
 						</label>
 						<label class="field switch">
+							<span class="field-label">略過中文配音　</span>
+							<span class="switch-control"><input id="skip_chinese_dub" type="checkbox"><span class="slider"></span></span>
+						</label>
+						<label class="field switch">
 							<span class="field-label">下載彈幕　　　</span>
 							<span class="switch-control"><input id="danmu" type="checkbox"><span class="slider"></span></span>
 						</label>
@@ -126,6 +130,16 @@
 				<section class="section">
 					<h2>帳號 Cookie</h2>
 					<p class="inv-intro">貼上從瀏覽器取得的 <code>Cookie:</code> 標頭字串（用以登入 VIP 帳號下載 1080P），儲存後寫入 <code>cookie.txt</code>。Cookie 必須與上方「請求UA」<strong>來自同一個瀏覽器</strong>，否則巴哈會視為異常登入。詳細取得步驟見「使用說明」頁。Docker 版無法手動編輯檔案，請由此貼上。</p>
+					<div id="login_window_box" class="login-box" hidden>
+						<p class="login-box-intro"><strong>桌面版捷徑：</strong>直接開一個獨立的<strong>無痕視窗</strong>登入動畫瘋，登入完成後自動把完整 cookie 寫回本機 —— 包含瀏覽器 JavaScript 讀不到的 HttpOnly 項目（例如 <code>BAHARUNE</code>），也不會有 UA 不一致的問題（登入視窗直接套用上方的「請求UA」）。不需要手動複製貼上。</p>
+						<div class="actions">
+							<button id="loginWindowBtn" type="button" class="btn btn-primary"
+								data-tip="開啟一個獨立的無痕登入視窗。完成登入後會自動擷取 cookie 並寫入，接著自動跑一次帳號健檢。若中途關閉視窗，原有 cookie 不會被更動。">開啟登入視窗（無痕）</button>
+							<button id="loginCaptureBtn" type="button" class="btn btn-secondary" disabled
+								data-tip="備援：若已經登入完成但沒有自動偵測到（例如網站更動了 cookie 名稱），按這裡立刻擷取目前登入視窗的 cookie。">立即擷取</button>
+							<span id="login_status" class="login-status"></span>
+						</div>
+					</div>
 					<dl class="sn-help">
 						<dt>注意</dt>
 						<dd>目前 cookie 內容以遮罩顯示（只露出每個值的頭尾各兩碼）；若要更新，請直接貼上完整新值再儲存。</dd>
@@ -218,6 +232,19 @@
 
 			<!-- ====================== Monitor ====================== -->
 			<section class="panel" id="panel-monitor" role="tabpanel" aria-labelledby="tab-monitor">
+				<div class="batch-control" id="account_bar">
+					<div class="batch-state">
+						<span class="batch-label">帳號狀態</span>
+						<span id="account_badge" class="badge">讀取中…</span>
+						<span id="account_detail" class="batch-label"></span>
+					</div>
+					<div class="batch-actions">
+						<input id="accountCheckSn" type="text" inputmode="numeric" class="inv-sn-input" placeholder="sn (可留空)"
+							data-tip="要拿來測試的影片 sn。留空就用下載清單 (sn_list) 的第一筆。">
+						<button id="accountCheckBtn" type="button" class="btn btn-secondary"
+							data-tip="帳號健檢：對動畫瘋發出一次真實請求（deviceid + token），確認 cookie 是否仍被伺服器接受、以及是否為 VIP 帳號。不會自動排程，只在你按下時執行一次。">帳號健檢</button>
+					</div>
+				</div>
 				<div class="batch-control">
 					<div class="batch-state">
 						<span class="batch-label">批次自動下載</span>
@@ -290,6 +317,8 @@
 						<span id="inv_summary" class="inv-summary"></span>
 						<button id="invRefreshBtn" type="button" class="btn btn-dark">重新整理</button>
 						<button id="invVerifyBtn" type="button" class="btn btn-secondary">深度驗證 (ffprobe)</button>
+						<button id="invPurgeBtn" type="button" class="btn btn-danger"
+							data-tip="掃出所有「資料庫說已下載、但硬碟上找不到檔案」的紀錄，先列出清單讓你確認，再一次移除。只刪資料庫紀錄，不會刪任何檔案。">清理缺檔紀錄</button>
 					</div>
 					<div id="inventory_list"></div>
 				</section>
@@ -347,6 +376,7 @@
 				<section class="section help-section">
 					<h2>一、如何取得並貼上 Cookie</h2>
 					<p>下載 VIP 1080P 需要登入帳號。本程式以瀏覽器的 <code>Cookie:</code> 標頭代替帳密登入，步驟如下：</p>
+					<p><strong>桌面版（aniGamer.bat）請優先用這個：</strong>到「設定」分頁的「帳號 Cookie」區塊按「<strong>開啟登入視窗（無痕）</strong>」，在跳出的無痕視窗裡正常登入即可 —— cookie 會自動擷取寫入（含 JavaScript 讀不到的 HttpOnly 項目），UA 也自動對齊，不必手動複製。以下手動步驟是給<strong>瀏覽器或 Docker 使用者</strong>的備援路徑。</p>
 					<ol class="help-list">
 						<li>用電腦瀏覽器（Chrome／Edge／Firefox 皆可）登入<a href="https://ani.gamer.com.tw/" target="_blank" rel="noopener">巴哈姆特動畫瘋</a>，確認右上角顯示為已登入的 VIP 帳號。</li>
 						<li>隨意開啟一部動畫的播放頁（網址形如 <code>https://ani.gamer.com.tw/animeVideo.php?sn=12345</code>）。</li>

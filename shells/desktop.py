@@ -40,6 +40,7 @@ import platform
 import subprocess
 import threading
 import time
+import urllib.request
 
 
 def _project_root():
@@ -238,6 +239,206 @@ def _ensure_webview2_runtime():
             return
 
 
+# --------------------------------------------------------------------------- #
+# IN-APP LOGIN: open an incognito window, let the user log in, capture the cookie.
+#
+# WHY this exists: the manual path is "open DevTools, copy the whole Cookie:
+# header, paste it into the 設定 tab". Worse, the cookies that actually matter
+# (BAHARUNE / BAHAID) are HttpOnly, so page JavaScript can never read them --
+# only a native cookie API can. pywebview's WebView2 backend exposes exactly
+# that via CoreWebView2.CookieManager.GetCookiesAsync(), which DOES return
+# HttpOnly cookies (webview/platforms/edgechromium.py reads c.IsHttpOnly).
+#
+# The dashboard SPA runs inside the pywebview window, so it can call into this
+# parent process through pywebview's js_api bridge. The Flask app cannot: it is
+# a hidden CHILD process with no GUI loop of its own.
+#
+# Incognito is not something we switch on: webview.start(private_mode=True) is
+# pywebview's DEFAULT, so WebView2 already uses a throwaway profile that is
+# wiped when the app exits.
+# --------------------------------------------------------------------------- #
+
+LOGIN_URL = 'https://user.gamer.com.tw/login.php'
+ANIME_URL = 'https://ani.gamer.com.tw/'
+
+# Both must be present before we are willing to overwrite cookie.txt. This is
+# deliberately stricter than CookieStore.looks_logged_in()'s any(): writing a
+# half-captured cookie makes the site treat the next request as an anomalous
+# login, which is the account-ban path (upstream issue #207). A partial capture
+# must leave the existing cookie untouched.
+REQUIRED_COOKIE_KEYS = ('BAHAID', 'BAHARUNE')
+
+# Dropped by CookieStore.read() anyway; drop it at the source so what we write
+# is exactly what will be read back.
+SKIP_COOKIE_KEYS = ('ckBH_lastBoard',)
+
+
+def cookies_to_pairs(cookie_list):
+    # pywebview hands back a list of SimpleCookie, each holding one morsel.
+    # Flatten to an ordered list of (name, value), skipping the noise keys.
+    pairs = []
+    for cookie in cookie_list or ():
+        try:
+            items = cookie.items()
+        except AttributeError:
+            continue
+        for name, morsel in items:
+            if name in SKIP_COOKIE_KEYS:
+                continue
+            pairs.append((name, morsel.value))
+    return pairs
+
+
+def pairs_to_header(pairs):
+    # The exact single-line shape CookieStore.read() parses: "k=v; k=v".
+    return '; '.join(name + '=' + value for name, value in pairs)
+
+
+def capture_is_complete(pairs):
+    names = {name for name, _ in pairs}
+    return all(k in names for k in REQUIRED_COOKIE_KEYS)
+
+
+def missing_required(pairs):
+    names = {name for name, _ in pairs}
+    return [k for k in REQUIRED_COOKIE_KEYS if k not in names]
+
+
+class LoginApi:
+    """js_api bridge exposed to the dashboard SPA as ``window.pywebview.api``.
+
+    Only reachable from the desktop window; a browser or the Docker shell has no
+    ``window.pywebview``, so the SPA hides the buttons there and the paste editor
+    stays the only path.
+    """
+
+    def __init__(self, host, port):
+        self._host = host
+        self._port = port
+        self._lock = threading.Lock()
+        self._login_window = None
+
+    # -- public (called from JS) --------------------------------------------
+    def open_login(self):
+        import webview
+        with self._lock:
+            if self._login_window is not None:
+                try:
+                    self._login_window.show()
+                except Exception:
+                    pass
+                return {'ok': False, 'keys': [], 'error': '登入視窗已經開著了'}
+            closed = threading.Event()
+            try:
+                win = webview.create_window(
+                    '登入 動畫瘋（無痕）', LOGIN_URL,
+                    width=520, height=780, min_size=(420, 600))
+            except Exception as e:
+                return {'ok': False, 'keys': [], 'error': '無法開啟登入視窗：' + str(e)}
+            win.events.closed += closed.set
+            self._login_window = win
+
+        try:
+            return self._await_login(win, closed)
+        finally:
+            self._teardown(win)
+
+    def capture_now(self):
+        # Manual fallback for when the poll never fires (e.g. the site renamed a
+        # cookie): grab whatever the login window holds right now.
+        win = self._login_window
+        if win is None:
+            return {'ok': False, 'keys': [], 'error': '沒有開著的登入視窗'}
+        try:
+            return self._capture(win)
+        except Exception as e:
+            return {'ok': False, 'keys': [], 'error': '擷取失敗：' + str(e)}
+        finally:
+            self._teardown(win)
+
+    # -- internals -----------------------------------------------------------
+    def _await_login(self, win, closed, timeout=300.0, interval=2.0):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if closed.is_set():
+                return {'ok': False, 'keys': [],
+                        'error': '登入視窗被關閉，未擷取任何 cookie（原有 cookie 未更動）'}
+            try:
+                pairs = cookies_to_pairs(win.get_cookies())
+            except Exception:
+                pairs = []          # window torn down mid-poll; the closed check catches it
+            if capture_is_complete(pairs):
+                return self._capture(win)
+            closed.wait(interval)   # sleeps, but wakes instantly if the window closes
+        return {'ok': False, 'keys': [],
+                'error': '等待登入逾時（5 分鐘），未擷取任何 cookie（原有 cookie 未更動）'}
+
+    def _capture(self, win):
+        # pywebview calls GetCookiesAsync(self.url), so the result is filtered by
+        # the window's CURRENT url. Sitting on user.gamer.com.tw would miss any
+        # cookie scoped to ani.gamer.com.tw, so land there before the real read.
+        self._goto_anime(win)
+        pairs = cookies_to_pairs(win.get_cookies())
+        if not capture_is_complete(pairs):
+            return {'ok': False, 'keys': [],
+                    'error': ('擷取到的 cookie 缺少 ' + ', '.join(missing_required(pairs))
+                              + '，可能尚未完成登入。未寫入，原有 cookie 保持不變。')}
+        try:
+            self._post_cookie(pairs_to_header(pairs))
+        except Exception as e:
+            return {'ok': False, 'keys': [], 'error': '寫入 cookie 失敗：' + str(e)}
+        return {'ok': True, 'keys': [name for name, _ in pairs], 'error': None}
+
+    def _goto_anime(self, win, timeout=15.0):
+        loaded = threading.Event()
+        try:
+            win.events.loaded += loaded.set
+        except Exception:
+            pass
+        try:
+            win.load_url(ANIME_URL)
+        except Exception:
+            return
+        loaded.wait(timeout)
+        time.sleep(1.0)  # let WebView2 commit the navigation's cookie jar view
+
+    def _post_cookie(self, header):
+        # Write through the child process's existing POST /cookie endpoint rather
+        # than touching cookie.txt here. CookieStore caches the parsed dict in
+        # memory (core/cookies.py), so a direct file write from THIS process would
+        # leave the daemon in the child still using the stale cookie. Going over
+        # loopback lets CookieStore.write() bust its own cache in the right place.
+        url = 'http://%s:%d/cookie' % (self._host, self._port)
+        req = urllib.request.Request(
+            url, data=header.encode('utf-8'), method='POST',
+            headers={'Content-Type': 'text/plain; charset=utf-8'})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            if resp.status != 200:
+                raise RuntimeError('HTTP ' + str(resp.status))
+
+    def _teardown(self, win):
+        with self._lock:
+            if self._login_window is win:
+                self._login_window = None
+        try:
+            win.destroy()
+        except Exception:
+            pass
+
+
+def _config_ua():
+    # The UA the engine will send (core/engine.py __init_header). Handing the same
+    # string to webview.start() means the login window mints the cookie under
+    # exactly that UA -- a mismatch is what the site reads as an anomalous login.
+    # user_agent is a start()-level option in pywebview; create_window has none,
+    # so the dashboard window inherits it too (harmless: it talks to local Flask).
+    try:
+        from core import config as Config
+        return Config.read_settings().get('ua') or None
+    except Exception:
+        return None
+
+
 def main():
     host, port = _dashboard_target()
 
@@ -276,6 +477,7 @@ def main():
     webview.settings['ALLOW_DOWNLOADS'] = True
     url = 'http://%s:%d' % (host, port)
     window = webview.create_window('AniGamerDownloader', url,
+                                   js_api=LoginApi(host, port),
                                    width=1180, height=820, min_size=(900, 600))
 
     # Watchdog: if the child daemon dies (crash / single-instance refusal /
@@ -290,7 +492,10 @@ def main():
     threading.Thread(target=_watch, name='child-watchdog', daemon=True).start()
 
     # Blocks on the GUI loop until the window closes (WebView2 backend on Windows).
-    webview.start()
+    # user_agent: the login window must mint the cookie under the SAME UA the
+    # engine later sends, or the site reads it as an anomalous login.
+    # private_mode defaults to True -> WebView2 uses a throwaway profile (incognito).
+    webview.start(user_agent=_config_ua())
 
     # Window closed -> stop the child cleanly, then exit hard so any lingering
     # threads/subprocesses do not keep the process alive.

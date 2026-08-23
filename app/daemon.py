@@ -257,6 +257,87 @@ def _print_doctor_result(result):
     print()
 
 
+def account_check(sn=None):
+    """On-demand account health check — is this cookie still accepted, and is it VIP?
+
+    ``vip`` lives nowhere but the ``ajax/token.php`` response, so this has to hit
+    the network. It runs the SHORT chain (build the engine -> deviceid -> token)
+    and stops, unlike :func:`doctor` which walks the whole parse chain. Like
+    doctor it goes through ``build_anime()`` so the real header / CookieStore /
+    one-shot cookie-refresh contract is exercised — a hand-rolled request could
+    silently consume a BAHARUNE refresh without persisting it, which is the actual
+    account-ban risk.
+
+    NOT scheduled or polled anywhere: extra automated traffic to the site is a ban
+    risk. Trigger it manually via the CLI (``--account-check``) or the 監控
+    dashboard button only.
+
+    Returns a dict::
+
+        {'sn': int|None, 'ok': bool,
+         'logged_in': bool,   # cookie.txt looks logged in AND the session did not
+                              # fall back to guest during the request
+         'cookie_looks_logged_in': bool,   # file-level only, no network
+         'guest_session': bool,
+         'vip': bool|None,    # None when it could not be determined
+         'detail': str,
+         'error': str|None}
+    """
+    if sn is None:
+        sn_dict_now = Config.read_sn_list()
+        if not sn_dict_now:
+            return {'sn': None, 'ok': False, 'logged_in': False,
+                    'cookie_looks_logged_in': cookies.looks_logged_in(),
+                    'guest_session': True, 'vip': None, 'detail': '',
+                    'error': 'sn_list.txt 是空的，請指定一個 sn 進行健檢'}
+        sn = next(iter(sn_dict_now))  # first entry in the file (dict preserves order)
+    try:
+        sn = int(sn)
+    except (TypeError, ValueError):
+        return {'sn': sn, 'ok': False, 'logged_in': False,
+                'cookie_looks_logged_in': cookies.looks_logged_in(),
+                'guest_session': True, 'vip': None, 'detail': '', 'error': 'sn 必須是數字'}
+
+    cookie_ok = cookies.looks_logged_in()
+    err_print(sn, '帳號健檢', '開始檢查（將對動畫瘋發出一次真實請求）', no_sn=False, status=0)
+
+    reset_last_diag()
+    anime = build_anime(sn)
+    if anime['failed'] or anime['anime'] is None:
+        last = get_last_diag()
+        broken, diag = last if last else (None, None)
+        detail = ('影片資訊解析失敗，原始回應已存於：' + diag) if diag             else '影片資訊抓取失敗（可能是網路問題、Cookie 失效，或該 sn 不存在）'
+        return {'sn': sn, 'ok': False, 'logged_in': False,
+                'cookie_looks_logged_in': cookie_ok, 'guest_session': True,
+                'vip': None, 'detail': detail, 'error': '連影片頁面都解析不了，無法判斷帳號狀態'}
+
+    res = anime['anime'].check_account()
+    logged_in = bool(cookie_ok and not res['guest_session'])
+    if res['ok']:
+        detail = ('帳號有效，' + ('VIP 帳號' if res['vip'] else '非 VIP 帳號')) if logged_in             else '伺服器以遊客身分回應（非 VIP，只能取得受限畫質）'
+    else:
+        detail = res['error'] or '無法判斷'
+    return {'sn': sn, 'ok': bool(res['ok'] and logged_in), 'logged_in': logged_in,
+            'cookie_looks_logged_in': cookie_ok, 'guest_session': res['guest_session'],
+            'vip': res['vip'], 'detail': detail, 'error': res['error']}
+
+
+def _print_account_result(result):
+    # Human-readable console rendering of account_check()'s dict, for --account-check.
+    print()
+    print('=== 帳號健檢 sn=' + str(result.get('sn')) + ' ===')
+    if result.get('error'):
+        print('  ! ' + result['error'])
+    print('  cookie 檔看起來已登入：' + ('是' if result.get('cookie_looks_logged_in') else '否'))
+    print('  伺服器接受此帳號    ：' + ('是' if result.get('logged_in') else '否'))
+    vip = result.get('vip')
+    print('  VIP                 ：' + ('是' if vip else ('否' if vip is not None else '無法判斷')))
+    if result.get('detail'):
+        print('  ' + result['detail'])
+    print('結果：' + ('正常。' if result.get('ok') else '異常。'))
+    print()
+
+
 # ---------------------------------------------------------------------------
 # DB wrappers: thin adapters over core.db that bind the injected db_path so the
 # call sites below (and Server.py) keep the original zero/one-arg signatures.
@@ -279,6 +360,54 @@ def update_db(anime):
 
 def reset_db_status(sn):
     return _db.reset_db_status(db_path, sn)
+
+
+def delete_db_rows(sns):
+    return _db.delete_db_rows(db_path, sns)
+
+
+def sns_still_tracked(sns):
+    """Which of ``sns`` would be re-inserted by the next automatic scan?
+
+    Deleting a db row is only permanent if sn_list has stopped tracking it —
+    otherwise ``check_tasks()`` re-inserts and re-downloads the episode on the
+    next cycle. Callers use this to warn before deleting; nothing here modifies
+    sn_list.txt.
+
+    sn_list stores SERIES sn, the db stores EPISODE sn, so they are different
+    numbers. The mapping is resolved through the db itself: a series sn is
+    normally also one of its own episode rows (episode 1), which gives us the
+    ``anime_name`` covering the whole series.
+
+    Returns ``(tracked_sns, unresolved_series_sns)``. ``unresolved`` lists
+    sn_list entries we could not map to any anime_name (never downloaded, so
+    absent from the db) — the caller should surface them rather than silently
+    treating them as safe.
+    """
+    sns = {int(s) for s in sns}
+    if not sns:
+        return [], []
+    series_sns = {int(s) for s in Config.read_sn_list().keys()}
+    rows = {r['sn']: r for r in read_db_all()}
+
+    tracked_names = set()
+    unresolved = []
+    for series_sn in series_sns:
+        row = rows.get(series_sn)
+        if row and row['anime_name']:
+            tracked_names.add(row['anime_name'])
+        else:
+            unresolved.append(series_sn)
+
+    tracked = set()
+    for sn in sns:
+        if sn in series_sns:
+            tracked.add(sn)
+            continue
+        row = rows.get(sn)
+        if row and row['anime_name'] in tracked_names:
+            tracked.add(sn)
+    return sorted(tracked), sorted(unresolved)
 
 
 def init_db():
@@ -454,6 +583,40 @@ def download_cd_counter():
     state.thread_limiter.release()
 
 
+# Dual-audio series (e.g. KERORO 軍曹) list their Chinese/Cantonese dub as EXTRA
+# episodes under the same series sn. Verified against the live site: the web-mode
+# episode-list keys carry the marker ('1'..'51' then '中文配音1'..'中文配音51'),
+# and the mobile API tags type 3/4 the same way (core/engine.py __get_episode_list).
+# Filtering on the KEY means the dub episodes are never even parsed -- no request,
+# no db row, nothing to clean up later.
+CHINESE_DUB_KEYWORDS = ('中文配音', '粵語')
+
+
+def is_chinese_dub(*labels):
+    # True if ANY given label (episode-list key / title / anime_name) looks like a
+    # Chinese or Cantonese dub.
+    return any(kw in (label or '') for label in labels for kw in CHINESE_DUB_KEYWORDS)
+
+
+def filter_dub_episodes(sn, episode_list):
+    """Drop the dub entries from an ``{episode_label: sn}`` map.
+
+    Returns the list of episode sn to actually consider. Honours the
+    ``skip_chinese_dub`` setting; logs once per series so a silently shrinking
+    episode list is never a mystery.
+    """
+    items = list(episode_list.items())
+    if not settings['skip_chinese_dub']:
+        return [ep_sn for _, ep_sn in items]
+    kept = [(label, ep_sn) for label, ep_sn in items if not is_chinese_dub(label)]
+    dropped = len(items) - len(kept)
+    if dropped:
+        err_print(sn, '略過配音版',
+                  '已略過 ' + str(dropped) + ' 集中文/粵語配音版本（設定「略過中文配音」為開啟）',
+                  display=False)
+    return [ep_sn for _, ep_sn in kept]
+
+
 def check_tasks():
     for sn in sn_dict.keys():
         anime = build_anime(sn)
@@ -462,12 +625,20 @@ def check_tasks():
             continue
         anime = anime['anime']
         err_print(sn, '更新資訊', '正在檢查《' + anime.get_bangumi_name() + '》')
-        episode_list = list(anime.get_episode_list().values())
+        # .items(), not .values(): the episode-list KEY is what marks a dub track.
+        episode_list = filter_dub_episodes(sn, anime.get_episode_list())
+        if not episode_list:
+            err_print(sn, '更新資訊', '過濾後沒有可下載的集數, 跳過', status=1)
+            continue
 
         if sn_dict[sn]['mode'] == 'all':
             for ep in episode_list:
                 try:
                     db = read_db(ep)
+                    # Backstop for rows recorded before the filter existed (or under
+                    # a different mode): free, the title is already in hand.
+                    if settings['skip_chinese_dub'] and is_chinese_dub(db['anime_name'], db['title']):
+                        continue
                     if (db['status'] == 0 or (db['remote_status'] == 0 and settings['upload_to_server'])) and ep not in state.queue.keys():
                         state.queue[ep] = sn_dict[sn]
                 except IndexError:
@@ -1066,6 +1237,8 @@ def cli_main(argv=None):
         parser.add_argument('--my_anime', action='store_true', help='匯出「我的動畫」至my_anime.txt')
         parser.add_argument('--doctor', nargs='?', type=int, const=-1, default=None,
                             help='網站健檢：對動畫瘋發出一次真實解析請求，檢查各步驟是否正常（可選 sn，預設用 sn_list 第一筆）')
+        parser.add_argument('--account-check', dest='account_check', nargs='?', type=int, const=-1, default=None,
+                            help='帳號健檢：對動畫瘋發出一次真實請求，確認 cookie 是否仍被接受、是否為 VIP（可選 sn，預設用 sn_list 第一筆）')
         arg = parser.parse_args(argv)
 
         if arg.my_anime:
@@ -1076,6 +1249,12 @@ def cli_main(argv=None):
             # --doctor alone -> const -1 (use default sn); --doctor <sn> -> that sn
             result = doctor(None if arg.doctor == -1 else arg.doctor)
             _print_doctor_result(result)
+            sys.exit(0 if result['ok'] else 1)
+
+        if arg.account_check is not None:
+            # --account-check alone -> const -1 (use default sn); with <sn> -> that sn
+            result = account_check(None if arg.account_check == -1 else arg.account_check)
+            _print_account_result(result)
             sys.exit(0 if result['ok'] else 1)
 
         if (arg.download_mode not in ('list', 'multi', 'sn-list', 'db')) and arg.sn is None:

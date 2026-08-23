@@ -162,6 +162,28 @@ def reset_db_status(db_path, sn):
         db_locker.release()
 
 
+def delete_db_rows(db_path, sns):
+    # Web dashboard: remove records from the db entirely. Does NOT touch files on disk.
+    # If an sn is still tracked by sn_list, the next scan will re-insert and re-download it,
+    # so the caller is expected to warn the user first (see app.daemon.sns_still_tracked).
+    # Returns the number of rows actually deleted.
+    sns = [int(s) for s in sns]
+    if not sns:
+        return 0
+    db_locker.acquire()
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.cursor()
+        cursor.executemany("DELETE FROM anime WHERE sn=?", [(sn,) for sn in sns])
+        deleted = cursor.rowcount
+        conn.commit()
+        cursor.close()
+    finally:
+        conn.close()
+        db_locker.release()
+    return deleted
+
+
 def init_db(db_path):
     # initialize the sqlite3 database (idempotent)
     conn = sqlite3.connect(db_path)

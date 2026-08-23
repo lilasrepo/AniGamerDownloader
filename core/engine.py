@@ -58,6 +58,15 @@ def _noop_progress(sn, event):
     pass
 
 
+def _random_string(num):
+    chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
+    random.seed(int(round(time.time() * 1000)))
+    result = []
+    for i in range(num):
+        result.append(chars[random.randint(0, len(chars) - 1)])
+    return ''.join(result)
+
+
 class AnimeDownloader:
     def __init__(self, sn, *, settings, paths, ffmpeg, cookies,
                  on_progress=None, logger=None, settings_writer=None,
@@ -426,19 +435,97 @@ class AnimeDownloader:
         else:
             return self.__request(req, no_cookies, show_fail, max_retry, addition_header, use_pyhttpx).json()
 
+    def _get_device_id(self):
+        req = 'https://ani.gamer.com.tw/ajax/getdeviceid.php'
+        resp = self.__request(req)  # same defaults as __request_json
+        try:
+            self._device_id = resp.json()['deviceid']
+        except (ValueError, KeyError, TypeError):
+            diag_path = dump_diag('getdeviceid', resp.text)
+            self._log(self._sn, 'ERROR: getdeviceid.php 回應中找不到 deviceid',
+                      'API 可能改版. 原始回應已存: ' + (diag_path or '(寫入失敗)'), status=1)
+            sys.exit(1)
+        return self._device_id
+
+    def _gain_access(self):
+        if self._settings['use_mobile_api']:
+            req = f'https://ani.gamer.com.tw/ajax/token.php?adID=0&sn={str(self._sn)}&device={self._device_id}'
+        else:
+            req = 'https://ani.gamer.com.tw/ajax/token.php?adID=0&sn=' + str(
+                self._sn) + "&device=" + self._device_id + "&hash=" + _random_string(12)
+        # returns basic info, used to determine whether the account is VIP
+        return self.__request_json(req)
+
+    def is_guest_session(self):
+        # True when this engine instance is (or has fallen back to) an anonymous
+        # session: either it started without a login cookie, or __request hit the
+        # "set-cookie: deleted" path, failed to pick up the refreshed BAHARUNE and
+        # downgraded self._cookies to guest. self._cookies may be a dict or a
+        # RequestsCookieJar; both support `in` over key names.
+        c = self._cookies
+        if not c:
+            return True
+        return not any(k in c for k in ('BAHAID', 'BAHARUNE'))
+
+    def check_account(self):
+        """Ask the site whether this cookie is still accepted, and whether it is VIP.
+
+        Runs ONLY deviceid -> token.php — the two steps that carry the answer —
+        and stops there, so it is much lighter than a full parse chain. ``vip``
+        exists nowhere else: it is a field of the token.php response.
+
+        Unlike the download path this NEVER calls ``sys.exit``; a broken or
+        unexpected response is returned as data so the dashboard can show it.
+
+        Manual use only (dashboard button / CLI). Do not schedule or poll it:
+        extra automated traffic to the site is an account-ban risk.
+        """
+        result = {'ok': False, 'vip': None, 'guest_session': True,
+                  'error': None, 'raw_keys': []}
+        try:
+            self._get_device_id()
+            user_info = self._gain_access()
+        except SystemExit:
+            # _get_device_id already dumped a diag and logged the step code
+            result['error'] = '取得 deviceid / token 失敗（詳見 data/logs/diag 最新的傾印檔）'
+            result['guest_session'] = self.is_guest_session()
+            return result
+        except BaseException as e:
+            result['error'] = '請求失敗：' + str(e)
+            result['guest_session'] = self.is_guest_session()
+            return result
+
+        result['guest_session'] = self.is_guest_session()
+        if not isinstance(user_info, dict):
+            result['error'] = 'token.php 回應格式非預期（不是 JSON 物件）'
+            return result
+        result['raw_keys'] = sorted(user_info.keys())
+
+        if 'error' in user_info:
+            err = user_info['error'] or {}
+            result['error'] = ('code=' + str(err.get('code')) +
+                               ' message: ' + str(err.get('message')))
+            return result
+        if 'vip' not in user_info:
+            # same breakage as the download path's 'token' step code, but reported
+            # instead of fatal — this is a health check, not a download.
+            diag_path = dump_diag('token', json.dumps(user_info, ensure_ascii=False))
+            result['error'] = ('token.php 回應中找不到 vip 欄位，API 可能改版。原始回應已存: '
+                               + (diag_path or '(寫入失敗)'))
+            return result
+
+        result['ok'] = True
+        result['vip'] = bool(user_info['vip'])
+        return result
+
     def __get_m3u8_dict(self):
         # m3u8 fetch module adapted from https://github.com/c0re100/BahamutAnimeDownloader
-        def get_device_id():
-            req = 'https://ani.gamer.com.tw/ajax/getdeviceid.php'
-            resp = self.__request(req)  # same defaults as __request_json
-            try:
-                self._device_id = resp.json()['deviceid']
-            except (ValueError, KeyError, TypeError):
-                diag_path = dump_diag('getdeviceid', resp.text)
-                self._log(self._sn, 'ERROR: getdeviceid.php 回應中找不到 deviceid',
-                          'API 可能改版. 原始回應已存: ' + (diag_path or '(寫入失敗)'), status=1)
-                sys.exit(1)
-            return self._device_id
+        # Extracted to methods so the account health check can run just
+        # deviceid -> token without the rest of the chain. Aliased here so every
+        # other nested helper below keeps calling them by their original names.
+        random_string = _random_string
+        get_device_id = self._get_device_id
+        gain_access = self._gain_access
 
         def get_playlist():
             if self._settings['use_mobile_api']:
@@ -446,23 +533,6 @@ class AnimeDownloader:
             else:
                 req = 'https://ani.gamer.com.tw/ajax/m3u8.php?sn=' + str(self._sn) + '&device=' + self._device_id
             self._playlist = self.__request_json(req)
-
-        def random_string(num):
-            chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
-            random.seed(int(round(time.time() * 1000)))
-            result = []
-            for i in range(num):
-                result.append(chars[random.randint(0, len(chars) - 1)])
-            return ''.join(result)
-
-        def gain_access():
-            if self._settings['use_mobile_api']:
-                req = f'https://ani.gamer.com.tw/ajax/token.php?adID=0&sn={str(self._sn)}&device={self._device_id}'
-            else:
-                req = 'https://ani.gamer.com.tw/ajax/token.php?adID=0&sn=' + str(
-                    self._sn) + "&device=" + self._device_id + "&hash=" + random_string(12)
-            # returns basic info, used to determine whether the account is VIP
-            return self.__request_json(req)
 
         def unlock():
             req = 'https://ani.gamer.com.tw/ajax/unlock.php?sn=' + str(self._sn) + "&ttl=0"

@@ -42,7 +42,7 @@ sn_list_path = os.path.join(data_dir, 'sn_list.txt')
 cookie_path = os.path.join(data_dir, 'cookie.txt')
 logs_dir = os.path.join(data_dir, 'logs')
 AniGamerDownloader_version = 'v0.1.2'
-latest_config_version = 17.2
+latest_config_version = 17.3
 latest_database_version = 2.0
 max_multi_thread = 5
 max_multi_downloading_segment = 5
@@ -165,6 +165,10 @@ def __init_settings():
                 'plex_naming': False, # adapt to PLEX naming rules
                 'faststart_movflags': False,
                 'audio_language': False,
+                # Dual-audio series list the Chinese/Cantonese dub as extra episodes
+                # under the SAME series sn (episode-list keys prefixed 中文配音 / 粵語).
+                # Default True: only the original-audio episodes are scheduled.
+                'skip_chinese_dub': True,
                 'use_mobile_api': False,
                 'danmu': False,
                 'danmu_ban_words': [],
@@ -327,6 +331,10 @@ def __update_settings(old_settings):  # upgrade the config file
 
     if 'audio_language_jpn' in new_settings.keys():
         del new_settings['audio_language_jpn']
+
+    if 'skip_chinese_dub' not in new_settings.keys():
+        # 0.1.x fork: skip the Chinese/Cantonese dub episodes of dual-audio series
+        new_settings['skip_chinese_dub'] = True
 
     if 'proxy' not in new_settings.keys() or 'proxies' in new_settings.keys():
         # v20 removed the chained proxy feature

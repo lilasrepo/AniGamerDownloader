@@ -49,6 +49,7 @@
     },
     "faststart_movflags": false,
     "audio_language": false,
+    "skip_chinese_dub": true,
     "use_mobile_api": false,
     "danmu": false,
     "check_latest_version": true,

@@ -24,9 +24,14 @@ python -m venv .venv
 
 ## 2. 設定 VIP cookie
 
-程式靠一份 `Cookie:` 標頭字串認證（決定畫質與 VIP 身分）。兩種設定方式：
+程式靠一份 `Cookie:` 標頭字串認證（決定畫質與 VIP 身分）。三種設定方式：
 
-- **（推薦）Web 介面**：啟動後到「設定」分頁的「帳號 Cookie」區塊貼上 cookie 與 UA、儲存。
+- **（桌面版最推薦）介面內登入**：「設定」分頁 →「帳號 Cookie」→「**開啟登入視窗（無痕）**」。
+  會開一個獨立的無痕視窗，登入完成後自動擷取並寫入 cookie，接著自動跑一次帳號健檢。
+  優點：能拿到瀏覽器 JavaScript 讀不到的 **HttpOnly** cookie（`BAHARUNE` 等），
+  且登入視窗直接套用 `config.json` 的 `ua`，**不會有 UA 不一致的問題**。
+  只在 pywebview 桌面視窗可用；用瀏覽器連 dashboard 或 Docker 版看不到這顆按鈕。
+- **Web 介面貼上**：到「設定」分頁的「帳號 Cookie」區塊貼上 cookie 與 UA、儲存。
 - **手動**：cookie 單行存到 `data\cookie.txt`（UTF-8、結尾不換行），UA 填進 `data\config.json` 的 `ua`。
 
 取得 cookie 的圖文步驟見[原專案說明](README.md#cookietxt)。重點：
@@ -85,7 +90,7 @@ python -m venv .venv
 | 檔案沒下到指定目錄 | `config.json` 的 `bangumi_dir`/`temp_dir` 路徑不存在時會退回 `data\bangumi`、`data\temp`，並在日誌印**一次紅色警告**；照警告建立原資料夾，或到「設定」分頁改成實際路徑。 |
 | 之前正常、突然整批下載失敗 | 可能是動畫瘋改版。到「監控」分頁按「網站健檢」（或 `python cli.py --doctor`）看是哪一步壞掉，再對照 [docs/SITE_API.md](SITE_API.md) 修復。 |
 | 畫質只有 720p | cookie 沒設或非 VIP；用 `cli.py -s <sn> -i` 看是否識別到 VIP。 |
-| 登入失效、變遊客 | 出現 `data\invalid_cookie.txt` 代表 cookie 被判失效；重抓放回 `data\cookie.txt`。 |
+| 登入失效、變遊客 | 出現 `data\invalid_cookie.txt` 代表 cookie 被判失效；桌面版按「開啟登入視窗（無痕）」重登即可，或重抓放回 `data\cookie.txt`。可用「監控」分頁的「**帳號健檢**」確認伺服器是否仍接受此帳號、是否為 VIP。 |
 | 改了 cookie 沒用 | `ua` 沒對應到取 cookie 的瀏覽器；把該瀏覽器的 User-Agent 填回 `config.json` 的 `ua`。 |
 | `ModuleNotFoundError` | 沒用 venv 跑；一定要用 `.venv\Scripts\python.exe`。 |
 | 設定全變回預設 | config 讀取出錯時程式會重置成預設（`core/config.py`）；改 config 前先備份 `config.json`。 |
