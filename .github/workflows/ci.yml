@@ -9,13 +9,18 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   compile:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - name: Byte-compile sources
-        run: python -m compileall -q core app shells cli.py
+        run: python -m compileall -q core app shells scripts cli.py

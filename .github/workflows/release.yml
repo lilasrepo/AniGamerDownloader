@@ -4,8 +4,8 @@ name: release
 #   * Windows portable pack -> zipped onedir, attached to the GitHub Release
 # Source code is the repo itself (clone / "Download ZIP").
 #
-# workflow_dispatch builds WITHOUT publishing (dry run): the Windows pack is
-# uploaded only as a workflow artifact.
+# workflow_dispatch builds WITHOUT publishing (dry run, even when started on a
+# tag ref): the Windows pack is uploaded only as a workflow artifact.
 
 on:
   push:
@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # create the Release + upload the zip
+  contents: read   # per-job grants below
 
 jobs:
   # Guard against a mismatched release: the in-code version constant
@@ -25,6 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Verify in-code version matches the release tag
         if: startsWith(github.ref, 'refs/tags/')
         run: |
@@ -39,8 +41,12 @@ jobs:
   windows-portable:
     needs: version-guard
     runs-on: windows-latest
+    permissions:
+      contents: write   # create the Release + upload the zip
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@v7
         with:
@@ -48,14 +54,20 @@ jobs:
 
       - name: Install dependencies
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true   # fail on ANY non-zero native exit, not just the last
           python -m pip install --upgrade pip
           pip install -r requirements-venv.txt
-          pip install pyinstaller pywebview
+          pip install -r shells/requirements-desktop.txt
 
       - name: Fetch WebView2 Evergreen bootstrapper
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           New-Item -ItemType Directory -Force shells\webview2 | Out-Null
-          curl.exe -L -o shells\webview2\MicrosoftEdgeWebview2Setup.exe "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
+          curl.exe --fail -L -o shells\webview2\MicrosoftEdgeWebview2Setup.exe "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
+          $sig = Get-AuthenticodeSignature shells\webview2\MicrosoftEdgeWebview2Setup.exe
+          if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
+            throw "WebView2 bootstrapper failed the signature check: $($sig.Status) / $($sig.SignerCertificate.Subject)"
+          }
 
       # Mirror scripts\build_desktop.bat (the verified recipe): --collect-all the
       # webview/pythonnet/clr_loader/gevent stack so the frozen WebView2 backend
@@ -72,15 +84,16 @@ jobs:
             --distpath dist --workpath build\pyi shells\desktop.py
 
       - name: Zip portable folder
-        run: Compress-Archive -Path dist\AniGamerDownloader\* -DestinationPath AniGamerDownloader-windows-portable-${{ github.ref_name }}.zip
+        run: Compress-Archive -Path dist\AniGamerDownloader\* -DestinationPath "AniGamerDownloader-windows-portable-$env:GITHUB_REF_NAME.zip"
 
       - name: Attach to Release (tag builds only)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v3
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: AniGamerDownloader-windows-portable-*.zip
 
-      - name: Upload as workflow artifact (dry runs)
+      - name: Upload as workflow artifact (dry runs, or a failed publish)
+        if: github.event_name == 'workflow_dispatch' || failure()
         uses: actions/upload-artifact@v7
         with:
           name: AniGamerDownloader-windows-portable
