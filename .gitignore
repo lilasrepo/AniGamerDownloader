@@ -142,7 +142,7 @@ data/temp/
 data/bangumi/
 
 # scratch dir for local checks and Claude Code (see the global CLAUDE.md rule)
-/temp/
+/tmp/
 
 # transient local backups
 data/*.bak*
