@@ -6,6 +6,12 @@
 #
 # pywebview pulls the Windows WebView2 backend (Edge Chromium). On a clean machine
 # also ensure the WebView2 Evergreen runtime is present — see docs/DESKTOP_BUILD.md.
-pywebview>=5.0
+#
+# Exact pins = the set the 2026-10-18 release dry run built and that was
+# launch-tested (window + WebView2 + daemon). Bump deliberately, then re-test.
+pywebview==6.2.1
+# pythonnet comes in via pywebview (the WinForms/WebView2 bridge). Pinned on its
+# own: 3.2 changed what it bundles (dropped the netstandard facade DLLs).
+pythonnet==3.2.1
 # Packaging tool for the portable ONEDIR build (scripts/build_desktop.bat).
-pyinstaller>=6.0
+pyinstaller==6.22.3
