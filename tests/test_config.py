@@ -102,14 +102,25 @@ class LoadsConfig(unittest.TestCase):
         self.assertEqual(loads_config(text), {'bangumi_dir': 'F:\\capture',
                                               'temp_dir': 'F:\\capture\\.temp'})
 
-    @unittest.expectedFailure
     def test_hand_typed_raw_path_that_is_a_valid_json_escape(self):
-        # BUG (core/config.py:457-463): "F:\temp" is ALSO valid JSON (\t = TAB), so
-        # json.loads succeeds and the raw-path fallback never runs. The docstring
-        # promises hand-typed un-escaped Windows paths are tolerated; \t \n \r \b \f
-        # (e.g. F:\temp, D:\new, C:\bangumi) come back with a control character.
-        text = '{"temp_dir": "F:\\temp"}'
-        self.assertEqual(loads_config(text), {'temp_dir': 'F:\\temp'})
+        # "F:\temp" is ALSO valid JSON (\t = TAB), so json.loads succeeds and the
+        # raw-path fallback never runs; the path keys must still come back intact.
+        for raw in ('F:\\temp', 'D:\\new', 'E:\\rclone', 'C:\\bangumi', 'G:\\films',
+                    'F:\\temp\\new', 'F:\\temp\\.cache'):
+            with self.subTest(raw=raw):
+                text = '{"bangumi_dir": "%s", "temp_dir": "%s"}' % (raw, raw)
+                self.assertEqual(loads_config(text), {'bangumi_dir': raw, 'temp_dir': raw})
+
+    def test_escapes_outside_path_keys_are_untouched(self):
+        # a newline in a message suffix is a legitimate value, not a broken path
+        text = json.dumps({'temp_dir': 'F:\\capture', 'coolq_settings': {'message_suffix': 'a\nb'},
+                           'customized_video_filename_suffix': 'x\ty'})
+        got = loads_config(text)
+        self.assertEqual(got['coolq_settings']['message_suffix'], 'a\nb')
+        self.assertEqual(got['customized_video_filename_suffix'], 'x\ty')
+
+    def test_non_dict_json_passes_through(self):
+        self.assertEqual(loads_config('[1, 2]'), [1, 2])
 
 
 # ---------------------------------------------------------------------------
@@ -289,14 +300,27 @@ class UpgradeOldConfig(ConfigSandbox):
         for gone in ('host', 'port', 'SSL', 'api', 'user_message'):
             self.assertNotIn(gone, cq)
 
-    @unittest.expectedFailure
     def test_upgrade_keeps_users_segment_max_retry(self):
-        # BUG (core/config.py:291-293): the guard tests 'segment_download_max_retry'
-        # but writes 'segment_max_retry', so every config upgrade overwrites the
-        # user's value (here -1 = retry forever) with 8. The upgrade message
-        # promises valid settings are not lost.
-        self.old_config(segment_max_retry=-1)
+        # the guard used to test 'segment_download_max_retry' while writing
+        # 'segment_max_retry', so every upgrade reset the user's value to 8
+        self.old_config(segment_max_retry=-1)   # -1 = retry forever
         self.assertEqual(config.read_settings()['segment_max_retry'], -1)
+
+    def test_upgrade_adds_missing_segment_max_retry(self):
+        self.old_config()
+        self.assertEqual(config.read_settings()['segment_max_retry'], 8)
+
+    def test_hand_typed_path_reaches_the_fallback_warning_intact(self):
+        # end to end: a raw  Q:\temp\nope...  in config.json (\t and \n are both valid
+        # JSON escapes) must be reported as typed, not with a TAB and a newline in it
+        raw = 'Q:\\temp\\nope-anigamer-unit-test'
+        text = json.dumps(dict(self.defaults(), temp_dir='@@'), ensure_ascii=False).replace('"@@"', '"%s"' % raw)
+        with open(self.config_path, 'w', encoding='utf-8') as f:
+            f.write(text)
+        config.read_settings()
+        warned = self.warnings_about('temp_dir')
+        self.assertEqual(len(warned), 1)
+        self.assertIn(raw, warned[0]['err_msg'])
 
 
 # ---------------------------------------------------------------------------
@@ -313,14 +337,16 @@ class FileRecovery(ConfigSandbox):
         self.write_config(dict(self.defaults(), check_frequency=17), bom=True)
         self.assertEqual(config.read_settings()['check_frequency'], 17)
 
-    @unittest.expectedFailure
     def test_cp950_file_is_transcoded_not_reset(self):
-        # BUG (core/config.py:466-487): reading a cp950/Big5 config.json raises
-        # UnicodeDecodeError, which is not a JSONDecodeError, so the check_encoding()
-        # transcoding branch is never reached; the generic handler deletes the file
-        # and writes defaults. The user's check_frequency=17 is lost.
-        self.write_config(dict(self.defaults(), check_frequency=17), encoding='cp950')
-        self.assertEqual(config.read_settings()['check_frequency'], 17)
+        # reading cp950 as UTF-8 raises UnicodeDecodeError, which used to skip the
+        # check_encoding() branch and fall into reset-to-defaults
+        self.write_config(dict(self.defaults(), check_frequency=17,
+                               customized_video_filename_prefix='【動畫瘋】巴哈'), encoding='cp950')
+        s = config.read_settings()
+        self.assertEqual(s['check_frequency'], 17)
+        self.assertEqual(s['customized_video_filename_prefix'], '【動畫瘋】巴哈')
+        # converted in place to UTF-8
+        self.assertEqual(self.read_config_file()['customized_video_filename_prefix'], '【動畫瘋】巴哈')
 
 
 # ---------------------------------------------------------------------------
@@ -416,15 +442,61 @@ class SnList(ConfigSandbox):
         self.assertEqual(config.read_sn_list(), {11111: {'mode': 'latest', 'tag': '', 'rename': ''}})
         self.assertTrue(os.path.exists(self.sn_list_path))
 
-    @unittest.expectedFailure
     def test_comment_on_last_line_without_newline(self):
-        # BUG (core/config.py:678): comments are stripped with r'#.+\n', so a comment on
-        # a final line with no trailing newline survives; the greedy <.*> then grabs
-        # across it. The web 片單 editor saves the textarea verbatim, so a missing
-        # trailing newline is normal. Expected rename 'Real Name'; got
-        # 'Real Name> # was <Old Name'.
+        # comments used to be stripped with r'#.+\n', so a final line with no
+        # trailing newline kept its comment and the greedy <.*> grabbed across it.
+        # The web 片單 editor saves the textarea verbatim, so this is the normal case.
         self.assertEqual(self.parse('67890 all <Real Name> # was <Old Name>'),
                          {67890: {'mode': 'all', 'tag': '', 'rename': 'Real Name'}})
+
+    def test_comment_without_newline_after_mode(self):
+        self.assertEqual(self.parse('11111 latest\n22222 largest-sn #note'), {
+            11111: {'mode': 'latest', 'tag': '', 'rename': ''},
+            22222: {'mode': 'largest-sn', 'tag': '', 'rename': ''},
+        })
+
+    def test_bare_hash_comment(self):
+        self.assertEqual(self.parse('11111 latest #\n'),
+                         {11111: {'mode': 'latest', 'tag': '', 'rename': ''}})
+
+
+# ---------------------------------------------------------------------------
+class GetLocalIp(unittest.TestCase):
+    """No real socket: socket.socket is replaced by a fake for each test."""
+
+    def fake_socket(self, connect_error=None):
+        created = []
+
+        class FakeSocket:
+            def __init__(self, *args):
+                self.closed = False
+                created.append(self)
+
+            def connect(self, addr):
+                if connect_error:
+                    raise connect_error
+
+            def getsockname(self):
+                return ('192.168.1.23', 50000)
+
+            def close(self):
+                self.closed = True
+
+        p = mock.patch.object(config.socket, 'socket', FakeSocket)
+        p.start()
+        self.addCleanup(p.stop)
+        return created
+
+    def test_returns_interface_address_and_closes(self):
+        created = self.fake_socket()
+        self.assertEqual(config.get_local_ip(), '192.168.1.23')
+        self.assertTrue(created[0].closed)
+
+    def test_offline_falls_back_to_loopback_and_closes(self):
+        # used to raise UnboundLocalError (local_ip.close() on an unbound name)
+        created = self.fake_socket(OSError(10051, 'network is unreachable'))
+        self.assertEqual(config.get_local_ip(), '127.0.0.1')
+        self.assertTrue(created[0].closed)
 
 
 if __name__ == '__main__':

@@ -288,7 +288,7 @@ def __update_settings(old_settings):  # upgrade the config file
         # default command is shut down after one minute
         new_settings['user_command'] = 'shutdown -s -t 60'
 
-    if 'segment_download_max_retry' not in new_settings.keys():
+    if 'segment_max_retry' not in new_settings.keys():
         # v9.0 added the per-segment retry count in segment mode
         new_settings['segment_max_retry'] = 8
 
@@ -441,6 +441,12 @@ def __update_settings(old_settings):  # upgrade the config file
     __color_print(0, msg, status=2, no_sn=True)
 
 
+# Path keys a human may hand-type into config.json, and the JSON escapes such a
+# raw path can accidentally form (F:\temp -> TAB, D:\new -> newline).
+_HAND_TYPED_PATH_KEYS = ('bangumi_dir', 'temp_dir')
+_JSON_ESCAPE_TO_RAW = str.maketrans({'\t': '\\t', '\n': '\\n', '\r': '\\r', '\b': '\\b', '\f': '\\f'})
+
+
 def __loads_config(text):
     """Parse config.json, tolerating hand-edited un-escaped Windows paths.
 
@@ -453,22 +459,34 @@ def __loads_config(text):
     So: parse as-is first, and only fall back to the escaping hack when that
     fails -- which is exactly the case it was written for (a human typed
     ``F:\\capture`` into the file by hand).
+
+    A hand-typed path can also form a VALID escape (``F:\\temp`` is a TAB), so
+    the parse succeeds and the fallback never runs. Control characters cannot
+    occur in a Windows path, so in the path keys they are mapped back to the
+    backslash + letter they came from.
     """
     try:
-        return json.loads(text)
+        settings = json.loads(text)
     except json.JSONDecodeError:
         # Double every backslash so a raw Windows path becomes valid JSON.
         # Written with chr(92) deliberately: an re.sub replacement template
         # re-interprets backslashes, which is how this line got halved once.
-        return json.loads(text.replace(chr(92), chr(92) * 2))
+        settings = json.loads(text.replace(chr(92), chr(92) * 2))
+    if isinstance(settings, dict):
+        for key in _HAND_TYPED_PATH_KEYS:
+            if isinstance(settings.get(key), str):
+                settings[key] = settings[key].translate(_JSON_ESCAPE_TO_RAW)
+    return settings
 
 
 def __read_settings_file():
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             return __loads_config(f.read())
-    except json.JSONDecodeError:
-        # if it has a BOM header, strip it
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        # if it has a BOM header, strip it; a non-UTF-8 file (e.g. cp950 saved by a
+        # zh-TW editor) fails to decode instead, and must reach the same transcoding
+        # rather than the reset-to-defaults handler below
         try:
             # del_bom(config_path)
             check_encoding(config_path)
@@ -675,7 +693,7 @@ def read_sn_list():
             elif re.match(r'^@ *', i):
                 bangumi_tag = ''
                 continue
-            i = re.sub(r'#.+\n', '', i).strip()  # delete comments
+            i = re.sub(r'#.*', '', i).strip()  # delete comments (the last line may have no \n)
             i = re.sub(r' +', ' ', i)  # remove extra spaces
             a = i.split(" ")
             if not a[0]:  # skip pure-comment lines
@@ -759,12 +777,15 @@ def write_sn_list(sn_list_content):
 
 
 def get_local_ip():
+    # UDP connect sends no packet; it only asks the OS which interface would route out
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect(('8.8.8.8', 80))
         local_ip = s.getsockname()[0]
-    except:
-        local_ip.close()
+    except OSError:
+        local_ip = '127.0.0.1'  # offline: no route out
+    finally:
+        s.close()
     return local_ip
 
 
