@@ -387,6 +387,57 @@ class DelBom(ConfigSandbox):
 
 
 # ---------------------------------------------------------------------------
+class CheckEncoding(ConfigSandbox):
+    """check_encoding() rewrites sn_list.txt / cookie.txt / config.json in place."""
+
+    TEXT = '12345 all <某動畫 第二季> # 售價 €5\n23456 latest\n'
+
+    def put(self, data):
+        p = os.path.join(self.data_dir, 'x.txt')
+        with open(p, 'wb') as f:
+            f.write(data)
+        return p
+
+    def content(self, p):
+        with open(p, 'rb') as f:
+            return f.read()
+
+    def test_utf8_untouched(self):
+        p = self.put(self.TEXT.encode('utf-8'))
+        config.check_encoding(p)
+        self.assertEqual(self.content(p), self.TEXT.encode('utf-8'))
+
+    def test_utf8_bom_is_stripped(self):
+        p = self.put(codecs.BOM_UTF8 + self.TEXT.encode('utf-8'))
+        config.check_encoding(p)
+        self.assertEqual(self.content(p), self.TEXT.encode('utf-8'))
+
+    def test_cp950_with_cp950_only_char_is_transcoded(self):
+        # chardet calls this Big5; the euro sign (0xA3E1) exists only in cp950,
+        # so decoding as plain big5 used to fail -- after truncating the file
+        p = self.put((self.TEXT * 3).encode('cp950'))
+        config.check_encoding(p)
+        self.assertEqual(self.content(p), (self.TEXT * 3).encode('utf-8'))
+
+    def test_failed_decode_leaves_file_untouched(self):
+        # 0x81 is undefined in Windows-1252, so a wrong guess cannot decode it
+        original = b'12345 all <\x81\x82>\n'
+        p = self.put(original)
+        with mock.patch.object(config.chardet, 'detect', return_value={'encoding': 'Windows-1252'}):
+            with self.assertRaises(UnicodeDecodeError):
+                config.check_encoding(p)
+        self.assertEqual(self.content(p), original)
+
+    def test_undetectable_encoding_leaves_file_untouched(self):
+        original = b'\xff\xfe\x00garbage'
+        p = self.put(original)
+        with mock.patch.object(config.chardet, 'detect', return_value={'encoding': None}):
+            with self.assertRaises(Exception):
+                config.check_encoding(p)
+        self.assertEqual(self.content(p), original)
+
+
+# ---------------------------------------------------------------------------
 class SnList(ConfigSandbox):
     """Format (docs/SETUP_GUIDE.md): ``sn 模式 <自訂資料夾名> # 註解``; modes all/latest/largest-sn.
     ``@名稱`` lines set a tag for the following entries, a bare ``@`` clears it."""
@@ -430,6 +481,13 @@ class SnList(ConfigSandbox):
     def test_utf8_bom(self):
         self.assertEqual(self.parse('11111 latest\n', bom=True),
                          {11111: {'mode': 'latest', 'tag': '', 'rename': ''}})
+
+    def test_cp950_file_from_a_zh_tw_editor(self):
+        got = self.parse('12345 all <某動畫 第二季> # 售價 €5\n23456 latest\n' * 3, encoding='cp950')
+        self.assertEqual(got, {
+            12345: {'mode': 'all', 'tag': '', 'rename': '某動畫 第二季'},
+            23456: {'mode': 'latest', 'tag': '', 'rename': ''},
+        })
 
     def test_missing_or_empty_file(self):
         self.assertEqual(config.read_sn_list(), {})

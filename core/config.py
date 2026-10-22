@@ -652,18 +652,22 @@ def check_encoding(file_path):
     # detect file encoding, convert non-UTF-8 encodings to UTF-8
     with open(file_path, 'rb') as f:
         data = f.read()
-        file_encoding = chardet.detect(data)['encoding']  # detect file encoding
-        if file_encoding == 'utf-8' or file_encoding == 'ascii':
-            # if it is UTF-8 encoded, no action needed
-            return
-        else:
-            # if it is another encoding, convert to UTF-8, including handling the BOM header
-            with open(file_path, 'wb') as f2:
-                __color_print(0, '檔案讀取', file_path + ' 編碼為 ' + file_encoding + ' 將轉碼為 UTF-8', no_sn=True, status=1)
-                data = data.decode(file_encoding)  # decode
-                data = data.encode('utf-8')  # encode
-                f2.write(data)  # write to file
-                __color_print(0, '檔案讀取', file_path + ' 轉碼成功', no_sn=True, status=2)
+    file_encoding = chardet.detect(data)['encoding']  # detect file encoding
+    if file_encoding == 'utf-8' or file_encoding == 'ascii':
+        # if it is UTF-8 encoded, no action needed
+        return
+    if file_encoding and file_encoding.lower() == 'big5':
+        # chardet reports cp950 (Windows' Big5 superset, what zh-TW editors save) as
+        # Big5, and plain big5 cannot decode cp950-only bytes such as the euro sign
+        file_encoding = 'cp950'
+    # if it is another encoding, convert to UTF-8, including handling the BOM header.
+    # Decode BEFORE opening for write: 'wb' truncates, so a failed decode used to
+    # leave an empty sn_list.txt / cookie.txt / config.json behind.
+    text = data.decode(file_encoding)
+    __color_print(0, '檔案讀取', file_path + ' 編碼為 ' + file_encoding + ' 將轉碼為 UTF-8', no_sn=True, status=1)
+    with open(file_path, 'wb') as f2:
+        f2.write(text.encode('utf-8'))
+    __color_print(0, '檔案讀取', file_path + ' 轉碼成功', no_sn=True, status=2)
 
 
 def read_sn_list():
