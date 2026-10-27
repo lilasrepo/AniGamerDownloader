@@ -59,8 +59,7 @@
 ```bash
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements-venv.txt
-.venv\Scripts\python -m pip install -r shells
-equirements-desktop.txt   # 桌面視窗才需要
+.venv\Scripts\python -m pip install -r shells\requirements-desktop.txt   # 桌面視窗才需要
 .venv\Scripts\python shells\desktop.py            # 獨立視窗，內含 http://127.0.0.1:5000
 ```
 

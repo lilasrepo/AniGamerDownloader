@@ -809,7 +809,7 @@ function snListWarning(info) {
 	if (info.in_sn_list && info.in_sn_list.length) {
 		lines.push('⚠ 其中 ' + info.in_sn_list.length + ' 筆仍在下載清單 (sn_list) 的追蹤範圍內。');
 		lines.push('移除後，下一次自動檢查會重新加入並重新下載這些集數。');
-		lines.push('若不想重抓，請先到「下載清單」分頁把該部動畫的那一行移除。');
+		lines.push('若不想重抓，請先到「片單」分頁把該部動畫的那一行移除。');
 	}
 	if (info.unresolved_sn_list && info.unresolved_sn_list.length) {
 		if (lines.length) lines.push('');
@@ -1015,7 +1015,7 @@ async function afterLoginResult(result) {
 	await showCookie();
 	await refreshAccountState();
 	await accountCheckNow();
-	setLoginStatus('已擷取 ' + result.keys.length + ' 個 cookie 並寫入。帳號狀態見「監控」分頁。', 'ok');
+	setLoginStatus('已擷取 ' + result.keys.length + ' 個 cookie 並寫入。帳號狀態見「儀表板」分頁。', 'ok');
 }
 
 async function openLoginWindow() {

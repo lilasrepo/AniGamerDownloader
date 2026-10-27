@@ -150,7 +150,7 @@ def doctor(sn=None):
     account-ban risk.
 
     NOT scheduled or polled anywhere: extra automated traffic to the site is a ban
-    risk. Trigger it manually via the CLI (``--doctor``) or the 監控 dashboard
+    risk. Trigger it manually via the CLI (``--doctor``) or the 儀表板 dashboard
     button only.
 
     Returns a dict::
@@ -249,7 +249,7 @@ def account_check(sn=None):
     account-ban risk.
 
     NOT scheduled or polled anywhere: extra automated traffic to the site is a ban
-    risk. Trigger it manually via the CLI (``--account-check``) or the 監控
+    risk. Trigger it manually via the CLI (``--account-check``) or the 儀表板
     dashboard button only.
 
     Returns a dict::
@@ -1167,7 +1167,7 @@ def run_daemon():
         # site, not to GitHub -- until the operator presses 繼續 or 立即檢查.
         state.batch_download_paused = True
         state.pause_reason = 'startup'
-        err_print(0, '啟動完成', '已進入待命狀態, 尚未連線. 請在監控頁按「繼續」或「立即檢查」開始更新',
+        err_print(0, '啟動完成', '已進入待命狀態, 尚未連線. 請在儀表板按「繼續」或「立即檢查」開始更新',
                   no_sn=True, status=2)
 
     state.daemon_running = True

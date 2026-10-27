@@ -81,7 +81,7 @@ ffmpeg 來源：https://www.gyan.dev/ffmpeg/builds/ 的 essentials build，取 `
 1. 複製**整個** `dist\AniGamerDownloader\` 資料夾（不要只複製 exe——onedir 需要旁邊的相依檔）。
 2. 雙擊 `AniGamerDownloader.exe` → 開出獨立 App 視窗。
 3. 第一次啟動：到「**設定**」分頁 →「帳號 Cookie」區塊貼 cookie、填「請求UA」→ 設「下載目錄」
-   →「下載清單」加 sn →「監控」按「立即檢查」。
+   →「片單」加 sn →「儀表板」按「立即檢查」。
 4. `data\`（`config.json` / `cookie.txt` / `aniGamer.db` / `logs`）會建立在 **exe 旁**；
    可攜時整夾帶走即保留設定與紀錄。
 
