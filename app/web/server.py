@@ -29,7 +29,6 @@ import ipaddress
 import zipfile
 import sqlite3
 import threading
-import traceback
 import subprocess
 import shutil
 import signal
@@ -41,7 +40,6 @@ from flask import Flask, request, jsonify, send_file
 from flask import render_template
 from flask_basicauth import BasicAuth
 import logging
-import termcolor
 from logging.handlers import TimedRotatingFileHandler
 import mimetypes
 import ssl
@@ -84,32 +82,6 @@ logger.addHandler(handler)
 logger.propagate = False  # do not output to the console
 
 
-# Handle the issue of Flask writing color control characters to the log file
-def colored(text, color=None, on_color=None, attrs=None):
-    who_invoked = traceback.extract_stack()[-2][2]  # caller of the function
-    if who_invoked == 'log_request':
-        # if the call comes from Flask/werkzeug
-        return text
-    else:
-        # calls from elsewhere are highlighted normally
-        COLORS = termcolor.COLORS
-        HIGHLIGHTS = termcolor.HIGHLIGHTS
-        ATTRIBUTES = termcolor.ATTRIBUTES
-        RESET = termcolor.RESET
-        if os.getenv('ANSI_COLORS_DISABLED') is None:
-            fmt_str = '\033[%dm%s'
-            if color is not None:
-                text = fmt_str % (COLORS[color], text)
-            if on_color is not None:
-                text = fmt_str % (HIGHLIGHTS[on_color], text)
-            if attrs is not None:
-                for attr in attrs:
-                    text = fmt_str % (ATTRIBUTES[attr], text)
-            text += RESET
-        return text
-
-
-termcolor.colored = colored
 app.logger.addHandler(handler)
 
 # Read the list of config names the web needs
