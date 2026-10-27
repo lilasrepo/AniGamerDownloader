@@ -2,12 +2,17 @@
 # greenlet/gevent/lxml min-bumped so pip selects cp313 wheels.
 # Flask stack is modern (3.x). Websocket libs (flask_sockets/gevent_websocket)
 # were removed when the web dashboard moved to polling.
-termcolor==1.1.0
+termcolor==3.3.0
+# Held at 4.0: 5.x injects truststore into ssl globally and needs pip._vendor or a
+# separate truststore package, neither of which the frozen build bundles.
 pip-system-certs==4.0
-requests==2.31.0
-chardet==3.0.4
-beautifulsoup4==4.11.1
-pyhttpx
+requests==2.34.2
+# 7.x misdetects short cp950 text (tests/test_config.py cp950 cases fail); 6.0 passes.
+chardet==6.0.0.post1
+beautifulsoup4==4.15.0
+# Pinned exactly: it owns the TLS layer of the site requests (ban risk), and it
+# pins cryptography==36.0.1 / pyOpenSSL==21.0.0 itself, so those cannot move.
+pyhttpx==2.10.9
 # --- C extensions: bumped to first cp311-wheel releases ---
 greenlet>=3.0.3
 gevent>=24.2.1

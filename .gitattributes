@@ -1,0 +1,3 @@
+# cmd.exe mis-resolves goto labels in LF-only batch files; force CRLF on checkout.
+*.bat text eol=crlf
+*.cmd text eol=crlf

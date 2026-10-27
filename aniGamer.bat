@@ -3,8 +3,8 @@ REM AniGamerDownloader — main launcher
 REM - the ONE entry point: opens a standalone desktop window (pywebview / WebView2)
 REM   hosting the dashboard, and runs the auto-download daemon + web UI in a hidden
 REM   child process. No browser tab, no console window (pythonw).
-REM - all controls live inside the window: Settings (incl. account Cookie) / Monitor / Download list /
-REM   Database / Manual tasks / Help. Closing the window stops the daemon child.
+REM - all controls live inside the window: Dashboard / Queue / Library / Settings (incl. account
+REM   Cookie). Closing the window stops the daemon child.
 REM - single-instance lock (daemon port 47763) prevents a second copy.
 REM - runs from the project .venv (Python 3.13). If .venv is missing (a fresh clone
 REM   or a new PC), it prints rebuild instructions (scripts\venv-missing.txt) instead

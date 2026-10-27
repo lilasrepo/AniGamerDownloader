@@ -25,6 +25,7 @@ import sys
 import os
 import re
 import io
+import ipaddress
 import zipfile
 import sqlite3
 import threading
@@ -791,8 +792,30 @@ def _ensure_self_signed_cert(crt_path, key_path):
         return False
 
 
+def _exposed_without_auth(dashboard):
+    # True when the web UI listens beyond loopback with no real password: BasicAuth
+    # off, or still the shipped 'admin' default. Anyone on the LAN could then read
+    # the cookie (/backup) or change settings. Pure, so it can be checked offline.
+    host = str(dashboard.get('host', '')).strip()
+    if host.lower() == 'localhost':
+        return False
+    try:
+        if ipaddress.ip_address(host).is_loopback:
+            return False
+    except ValueError:
+        pass  # a hostname we can't classify: treat it as exposed
+    return (not dashboard.get('BasicAuth') or not dashboard.get('password')
+            or dashboard.get('password') == 'admin')
+
+
 def run():
     settings = Config.read_settings()  # read config
+
+    if _exposed_without_auth(settings['dashboard']):
+        err_print(0, 'Dashboard', 'Web 控制臺監聽 ' + str(settings['dashboard']['host'])
+                  + ' (非本機) 但未設定密碼 — 區網內任何人都能讀取 cookie、修改設定。'
+                  + '請在 config.json 的 dashboard 開啟 BasicAuth 並改掉預設密碼 admin，或把 host 改回 127.0.0.1。',
+                  no_sn=True, status=1)
 
     if settings['dashboard']['BasicAuth']:
         # BasicAuth config.
